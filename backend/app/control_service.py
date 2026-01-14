@@ -2,7 +2,9 @@ import pandas as pd
 from .query import chiller_query
 import math
 from . import config
-
+import pandas as pd
+import numpy as np
+import re
 def _float_or_none(v):
     if v is None:
         return None
@@ -311,8 +313,8 @@ def df_pump_total_predict_history(start="-24h", stop="now()", every="10m", rate=
             "cost_saving": round(cost_saving, 2),
         },
     }
-import pandas as pd
-import numpy as np
+
+#reccomed
 
 def df_recommend(start="-30d", stop="now()", every="1h"):
 
@@ -357,4 +359,83 @@ def df_recommend(start="-30d", stop="now()", every="1h"):
     }
 
 
-print(df_recommend())
+#suggestion
+def _parse_every_to_minutes(every: str) -> int:
+    """
+    รองรับ "30m", "10m", "1h", "2h"
+    """
+    m = re.match(r"^\s*(\d+)\s*([mh])\s*$", str(every).lower())
+    if not m:
+        return 60  
+    n = int(m.group(1))
+    unit = m.group(2)
+    return n if unit == "m" else n * 60
+
+def _consecutive_true(series_bool: pd.Series, n_points: int) -> pd.Series:
+    # True ต่อเนื่องครบ n_points
+    s = series_bool.fillna(False).astype(int)
+    return s.rolling(n_points, min_periods=n_points).sum().ge(n_points)
+
+def suggestion_status_chiller():
+    start="-5h"
+    stop="now()"
+    every="15m"
+    percent_load = 85 #%
+    load_input = 240 #kW
+    consecutive_minutes = 180
+
+    ch_df = pd.DataFrame(df_chiller_power_history(start=start, stop=stop, every=every))
+    if ch_df is None or ch_df.empty:
+        return {"ok": False, "error": "no data"}
+    ch_df["ts"] = pd.to_datetime(ch_df["ts"], utc=True, errors="coerce")
+    ch_df = ch_df.dropna(subset=["ts"]).sort_values("ts")
+
+    #chiller
+    P2CH1_power = "Winenergy.P2CH01.kW"
+    P2CH2_power = "Winenergy.P2CH02.kW"
+
+    #temp_return
+
+    P2CH1_temp_return = "Chiller.PLANT_Node2.CLG2_TEMP_CHWR"
+    P2CH1_temp_supply = "Chiller.PLANT_Node2.CLG2_TEMP_CHWS"
+
+    ch_df["p2ch1_pct"] = (ch_df[P2CH1_power] / load_input) * 100.0
+    ch_df["p2ch2_pct"] = (ch_df[P2CH2_power] / load_input) * 100.0
+    
+    ch_df["p2ch1_over"] = (ch_df["p2ch1_pct"] > percent_load)
+    ch_df["p2ch2_over"] = (ch_df["p2ch2_pct"] > percent_load)
+    
+    all_true_p2ch1 = ch_df["p2ch1_over"].all()
+    all_true_p2ch2 = ch_df["p2ch2_over"].all()
+
+    print(all_true_p2ch1)
+
+    last = ch_df.iloc[-1]
+    last["p2ch2_over_consec"]
+
+    decision = None
+    print((ch_df[P2CH1_power] > 50 & ch_df[P2CH2_power] > 50))
+    if (ch_df[P2CH1_power] > 50 & ch_df[P2CH2_power] > 50):#
+        return
+    
+    if all_true_p2ch1 or all_true_p2ch2:
+        decision = "ON_2_CHILLER"  # ถ้ามี chiller ตัวใดเกินเกณฑ์ต่อเนื่อง แนะนำเปิด 2 ตัว
+    else:
+        decision = "ON_1_CHILLER"  # ถ้าไม่มีใครเกินเกณฑ์ แนะนำเปิด 1 ตัว
+
+    return {
+        "ok": True,
+        "decision": decision,
+        "last_data": last.to_dict(),  # ข้อมูลล่าสุดที่ใช้ตัดสินใจ
+        }
+    #return()
+
+print(suggestion_status_chiller())
+
+"""
+def suggestion:
+    def number_chiller_on:
+    def how_many_saving:
+    def 
+
+"""
