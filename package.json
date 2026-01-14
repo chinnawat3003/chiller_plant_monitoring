@@ -1,0 +1,13 @@
+{
+  "name": "rmc-monitor",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev:backend": "cd backend && .\\.venv\\Scripts\\python.exe -m uvicorn app.main:app --reload --port 8000",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "dev": "concurrently -k \"npm:dev:backend\" \"npm:dev:frontend\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  }
+}
