@@ -399,6 +399,8 @@ def suggestion_status_chiller():
     P2CH1_temp_return = "Chiller.PLANT_Node2.CLG2_TEMP_CHWR"
     P2CH1_temp_supply = "Chiller.PLANT_Node2.CLG2_TEMP_CHWS"
 
+
+
     ch_df["p2ch1_pct"] = (ch_df[P2CH1_power] / load_input) * 100.0
     ch_df["p2ch2_pct"] = (ch_df[P2CH2_power] / load_input) * 100.0
     
@@ -411,11 +413,12 @@ def suggestion_status_chiller():
     print(all_true_p2ch1)
 
     last = ch_df.iloc[-1]
-    last["p2ch2_over_consec"]
+    
 
     decision = None
-    print((ch_df[P2CH1_power] > 50 & ch_df[P2CH2_power] > 50))
-    if (ch_df[P2CH1_power] > 50 & ch_df[P2CH2_power] > 50):#
+    print(f"2 chiller on status:{(ch_df[P2CH1_power] > 50 & ch_df[P2CH2_power] > 50)}")
+
+    if (ch_df[P2CH1_power] > 50 & ch_df[P2CH2_power] > 50):# if chiller on
         return
     
     if all_true_p2ch1 or all_true_p2ch2:
@@ -430,12 +433,27 @@ def suggestion_status_chiller():
         }
     #return()
 
-print(suggestion_status_chiller())
+
 
 """
 def suggestion:
-    def number_chiller_on:
-    def how_many_saving:
-    def 
+    def function for pull raw data such as Power, cooling capa, temp return, temp supply
+    def chck about number of chiller status
+    def condition
+        if on 2 chiller
+        if on 1 chiller
+    
+    
 
 """
+def suggestion():
+    start="-5h"
+    stop="now()"
+    every="15m"
+    percent_load = 85 #%
+    load_input = 240 #kW
+    consecutive_minutes = 180
+
+    ch_df = pd.DataFrame(df_chiller_power_history(start=start, stop=stop, every=every))
+
+print(suggestion())
