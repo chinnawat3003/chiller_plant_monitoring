@@ -314,7 +314,7 @@ def df_pump_total_predict_history(start="-24h", stop="now()", every="10m", rate=
         },
     }
 
-#reccomed
+#reccomend
 
 def df_recommend(start="-30d", stop="now()", every="1h"):
 
