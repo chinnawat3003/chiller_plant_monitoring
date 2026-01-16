@@ -136,52 +136,85 @@ def kw_cooling(flow_m3h: float, dt_c: float) -> float:
     # kg/s * (kJ/kgK) => kJ/sK = kW/K
     return (flow_m3h * RHO * CP * dt_c) / 3600.0
 
+def df_cooling_capa_history(start="-24h", stop="now()", every="10m"):
+    df_temp = chiller_query.chiller_tank_temp_history(start, stop, every)
+    df_flow = chiller_query.pump_flow_history(start, stop, every)
+    #constant param
+    Cp = 1.163
+
+    for d in (df_temp, df_flow):
+        d["ts"] = pd.to_datetime(d["ts"], utc=True, errors="coerce")
+        d.dropna(subset=["ts"], inplace=True)
+        d.sort_values("ts", inplace=True)
+        
+    raw_df = pd.concat([df_temp, df_flow], ignore_index=True).sort_values("ts")
+    wide = raw_df.pivot(index="ts", columns="Source_tag", values="value")
+    
+    # different temp
+    p2ch1_ret = wide["Chiller.PLANT_Node2.CLG2_TEMP_CHWR"]
+    p2ch1_sup = wide["Chiller.PLANT_Node2.CLG2_TEMP_CHWS"]
+    
+    wide["dif_temp"] = p2ch1_ret - p2ch1_sup
+
+    #cooling capa 
+    #flow = wide["Winenergy.P2CH01.Flow_Counter"]
+    flow = 150 # ใช้ constant
+    wide["cooling_capa"] = flow * Cp * wide["dif_temp"]
+
+    #print(f"dif temp = {wide["dif_temp"]}")
+    out = wide[["cooling_capa"]].reset_index()
+    return out
 
 #COP (flow*cp*dif_temp)
 def df_cop():
     pw = df_chiller_power()
     fl = df_pump_flow()
     tp = df_chiller_temp()
-
+    
     if not pw or not fl or not tp:
         return None
     
     MAP = {
-        "P1_CH01": {
-            "power": "Winenergy.P1CH01.kW",
-            "flow": "Winenergy.P1CH01.Flow_Counter",
+        "P2_CH01": {
+            "power": "Winenergy.P2CH01.kW",
+            "flow": "Winenergy.P2CH01.Flow_Counter",
             "t_ret": "Chiller.PLANT_Node2.CLG2_CH01_EVAP_ENTERING_WATER_TEMP_1",
             "t_sup": "Chiller.PLANT_Node2.CLG2_CH01_EVAP_LEAVING_WATER_TEMP_1"
         },
 
-        "P1_CH02": {
-            "power": "Winenergy.P1CH02.kW",
-            "flow": "Winenergy.P1CH01.Flow_Counter",
+        "P2_CH02": {
+            "power": "Winenergy.P2CH02.kW",
+            "flow": "Winenergy.P2CH01.Flow_Counter",
             "t_ret": "Chiller.PLANT_Node2.CLG2_CH02_EVAP_ENTERING_WATER_TEMP_1",
             "t_sup": "Chiller.PLANT_Node2.CLG2_CH02_EVAP_LEAVING_WATER_TEMP_1"
         },
 
     }
     out = {}
+    
     for name, m in MAP.items():
         try:
-            p_kw = float(pw["data"][m["power"]])
-            f_m3h = float(fl["data"][m["flow"]])
-            t_ret = float(tp["data"][m["t_ret"]])
-            t_sup = float(tp["data"][m["t_sup"]])
+            def getv(payload, tag):
+                return payload["param"][tag]["data"]
+
+            # ใน loop:
+            p_kw = float(getv(pw, m["power"]))
+            f_m3h = float(getv(fl, m["flow"]))
+            t_ret = float(getv(tp, m["t_ret"]))
+            t_sup = float(getv(tp, m["t_sup"]))
+
         except KeyError:
             continue
-
+        
+        print(f"p_kw = {p_kw}")
+        f_m3h = 150
         dt = t_ret - t_sup
-        q_kw = kw_cooling(f_m3h, dt)
-        cop = (q_kw / p_kw) if p_kw > 0 else None
+        q_kw = kw_cooling(f_m3h, dt)  
+        cop = (q_kw / p_kw) if p_kw > 30 else None
 
         out[name] = {
-            "COP": cop,
-            "Q_kW": q_kw,
-            "P_kW": p_kw,
-            "flow_m3h": f_m3h,
-            "dT": dt
+            "COP": cop
+            
         }
 
     ts = max(pw["ts"], fl["ts"], tp["ts"])
@@ -358,83 +391,6 @@ def df_recommend(start="-30d", stop="now()", every="1h"):
         }
     }
 
-
-#suggestion
-def _parse_every_to_minutes(every: str) -> int:
-    """
-    รองรับ "30m", "10m", "1h", "2h"
-    """
-    m = re.match(r"^\s*(\d+)\s*([mh])\s*$", str(every).lower())
-    if not m:
-        return 60  
-    n = int(m.group(1))
-    unit = m.group(2)
-    return n if unit == "m" else n * 60
-
-def _consecutive_true(series_bool: pd.Series, n_points: int) -> pd.Series:
-    # True ต่อเนื่องครบ n_points
-    s = series_bool.fillna(False).astype(int)
-    return s.rolling(n_points, min_periods=n_points).sum().ge(n_points)
-
-def suggestion_status_chiller():
-    start="-5h"
-    stop="now()"
-    every="15m"
-    percent_load = 85 #%
-    load_input = 240 #kW
-    consecutive_minutes = 180
-
-    ch_df = pd.DataFrame(df_chiller_power_history(start=start, stop=stop, every=every))
-    if ch_df is None or ch_df.empty:
-        return {"ok": False, "error": "no data"}
-    ch_df["ts"] = pd.to_datetime(ch_df["ts"], utc=True, errors="coerce")
-    ch_df = ch_df.dropna(subset=["ts"]).sort_values("ts")
-
-    #chiller
-    P2CH1_power = "Winenergy.P2CH01.kW"
-    P2CH2_power = "Winenergy.P2CH02.kW"
-
-    #temp_return
-
-    P2CH1_temp_return = "Chiller.PLANT_Node2.CLG2_TEMP_CHWR"
-    P2CH1_temp_supply = "Chiller.PLANT_Node2.CLG2_TEMP_CHWS"
-
-
-
-    ch_df["p2ch1_pct"] = (ch_df[P2CH1_power] / load_input) * 100.0
-    ch_df["p2ch2_pct"] = (ch_df[P2CH2_power] / load_input) * 100.0
-    
-    ch_df["p2ch1_over"] = (ch_df["p2ch1_pct"] > percent_load)
-    ch_df["p2ch2_over"] = (ch_df["p2ch2_pct"] > percent_load)
-    
-    all_true_p2ch1 = ch_df["p2ch1_over"].all()
-    all_true_p2ch2 = ch_df["p2ch2_over"].all()
-
-    print(all_true_p2ch1)
-
-    last = ch_df.iloc[-1]
-    
-
-    decision = None
-    print(f"2 chiller on status:{(ch_df[P2CH1_power] > 50 & ch_df[P2CH2_power] > 50)}")
-
-    if (ch_df[P2CH1_power] > 50 & ch_df[P2CH2_power] > 50):# if chiller on
-        return
-    
-    if all_true_p2ch1 or all_true_p2ch2:
-        decision = "ON_2_CHILLER"  # ถ้ามี chiller ตัวใดเกินเกณฑ์ต่อเนื่อง แนะนำเปิด 2 ตัว
-    else:
-        decision = "ON_1_CHILLER"  # ถ้าไม่มีใครเกินเกณฑ์ แนะนำเปิด 1 ตัว
-
-    return {
-        "ok": True,
-        "decision": decision,
-        "last_data": last.to_dict(),  # ข้อมูลล่าสุดที่ใช้ตัดสินใจ
-        }
-    #return()
-
-
-
 """
 def suggestion:
     def function for pull raw data such as Power, cooling capa, temp return, temp supply
@@ -442,18 +398,187 @@ def suggestion:
     def condition
         if on 2 chiller
         if on 1 chiller
-    
-    
 
 """
 def suggestion():
-    start="-5h"
-    stop="now()"
-    every="15m"
-    percent_load = 85 #%
-    load_input = 240 #kW
-    consecutive_minutes = 180
+    def pull_data(start="-12h", stop="now()", every="15m"):
+        
+        percent_load = 85 #%
+        load_input_max = 240 #kW
 
-    ch_df = pd.DataFrame(df_chiller_power_history(start=start, stop=stop, every=every))
+        ch_power_df = pd.DataFrame(df_chiller_power_history(start=start, stop=stop, every=every))
+        ch_temp_df = pd.DataFrame(df_chiller_temp_history(start=start, stop=stop, every=every))
+        ch_flow_df = pd.DataFrame(df_pump_flow_history(start=start, stop=stop, every=every))
 
-print(suggestion())
+        raw_df = pd.concat([ch_power_df, ch_temp_df, ch_flow_df], ignore_index=True).sort_values("ts")
+        print(raw_df.columns)
+        #wide = raw_df.pivot(index="ts", columns="Source_tag", values="value")
+        
+
+
+        print(raw_df)
+        
+        return raw_df
+    
+    def check_status_chiller_on():
+        num_chiller_open = 0
+        ch_power_df = df_chiller_power()
+        #print(ch_power_df)
+        
+        data_P1CH1 = ch_power_df["param"]["Winenergy.P2CH01.kW"]["data"]
+        data_P1CH2 = ch_power_df["param"]["Winenergy.P2CH02.kW"]["data"]
+        #print(data_P1CH2)
+        if data_P1CH1 > 50 and data_P1CH2 > 50:
+            num_chiller_open = 2
+        elif data_P1CH1 > 50 or data_P1CH2 > 50:
+            num_chiller_open = 1
+        return {
+            "ok": True,
+            "num_chiller_on": num_chiller_open
+            }
+    
+    def on_2_condition(start="-12h", stop="now()", every="20m", cooling_low=686):
+        result_df = pull_data(start=start, stop=stop, every=every)
+
+        cooling_df = df_cooling_capa_history(start=start, stop=stop, every=every)
+        cooling_df = cooling_df.dropna(subset=["cooling_capa"])
+        
+        cooling_df["p2_cooling_capa_out"] = cooling_df["cooling_capa"] < cooling_low
+        #print(cooling_df["p2_cooling_capa_out"])
+        all_true_cooling_capa = cooling_df["p2_cooling_capa_out"].all()
+        print(all_true_cooling_capa)
+
+        if all_true_cooling_capa == True:
+            return {
+                "ok": True,
+                "status": "Now 2 Chiller ON",
+                "suggest": "ON 1 Chiller",
+                "reason": f"Cooling capa less than {cooling_low}"
+            }
+        if all_true_cooling_capa == False:
+
+            return {
+                "ok": True,
+                "status": "Now 2 Chiller ON",
+                "suggest": "-",
+                "reason": f"Cooling capa more than {cooling_low}"
+            }
+        
+        print(f"all_true_cooling_capa_p2 = {all_true_cooling_capa}")
+        
+    
+    def on_1_condition(start="-12h", stop="now()", every="15m", cooling_low=686):
+        #constant
+        power_peak = 240
+        percent_load = 85 #%
+        power_P2CH1 = "Winenergy.P2CH01.kW"
+        power_P2CH2 = "Winenergy.P2CH02.kW"
+
+        result_df = pull_data(start=start, stop=stop, every=every)
+        
+        cooling_df = df_cooling_capa_history(start=start, stop=stop, every=every)
+        cooling_df = cooling_df.dropna(subset=["cooling_capa"])
+
+        cooling_df["p2_cooling_capa_out"] = cooling_df["cooling_capa"] > cooling_low
+        all_true_cooling_capa = cooling_df["p2_cooling_capa_out"].all()
+        
+        #cooling_capa check
+        if all_true_cooling_capa == True:
+            last = cooling_df.iloc[-1]
+            return {
+                "ok": True,
+                "status": "Now 1 Chiller ON",
+                "suggest": "ON 2 Chiller",
+                "reason": f"Cooling capa more than {cooling_low} at {round(last["cooling_capa"], 2)}"
+            }
+        
+        if all_true_cooling_capa == False: 
+            last = cooling_df.iloc[-1]
+            return {
+                "ok": True,
+                "status": "Now 1 Chiller ON",
+                "suggest": "-",
+                "reason": f"Cooling capa less than {cooling_low} at {round(last["cooling_capa"], 2)}"
+            }
+
+        #power check
+        which_one_on = "None"
+
+        result_df["P2CH1_on"] = result_df[power_P2CH1] > 50 #check on-off
+        P2CH1_on = result_df["P2CH1_on"].all()
+        result_df["P2CH2_on"] = result_df[power_P2CH1] > 50
+        P2CH2_on = result_df["P2CH2_on"].all()
+
+        #%Load calculation
+        result_df["percent_load_p2_ch1"] = ((result_df[power_P2CH1] / power_peak) * 100) > power_peak
+        result_df["percent_load_p2_ch2"] = ((result_df[power_P2CH2] / power_peak) * 100) > power_peak
+        
+        P2CH1_over = result_df["percent_load_p2_ch1"].all()        
+        P2CH2_over = result_df["percent_load_p2_ch2"].all()
+
+
+        if P2CH1_on == True: #chiller1 on
+            which_one_on = power_P2CH1
+            if P2CH1_over == True: #%Load over
+                return {
+                    "ok": True,
+                    "status": "Now P2CH1 ON",
+                    "suggest": "ON 2 Chiller",
+                    "reason": f"%load more than {percent_load} %"
+                }
+            else:
+                return {
+                    "ok": True,
+                    "status": "Now P2CH1 ON",
+                    "suggest": "-",
+                    "reason": f"%load less than {percent_load} %"
+                }
+            
+        elif P2CH2_on == True: #chiller2 on
+            which_one_on = power_P2CH2
+            if P2CH2_over == True: #%Load over
+                return {
+                    "ok": True,
+                    "status": "Now P2CH2 ON",
+                    "suggest": "ON 2 Chiller",
+                    "reason": f"%load more than {percent_load} %"
+                }
+            else:
+                return {
+                    "ok": True,
+                    "status": "Now P2CH2 ON",
+                    "suggest": "-",
+                    "reason": f"%load less than {percent_load} %"
+                }
+
+
+        
+    
+    #start get in condition
+    start = "-12h"
+    stop = "now()"
+    every = "20m"
+    cooling_low = 686
+    check_num_chiller_on = check_status_chiller_on()
+
+
+    if check_num_chiller_on["num_chiller_on"] == 2:
+    
+        return on_2_condition(start=start, stop=stop, every=every, cooling_low=cooling_low)
+    
+    elif check_num_chiller_on["num_chiller_on"] == 1:
+        return on_1_condition(start=start, stop=stop, every=every, cooling_low=cooling_low)
+
+        
+    
+    elif check_num_chiller_on["num_chiller_on"] == 0:
+        return {
+                    "ok": True,
+                    "status": "Plant close",
+                    "suggest": "-",
+                    "reason": "-"
+                }
+    
+
+if __name__ == "__main__":
+    print(suggestion())

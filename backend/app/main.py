@@ -137,13 +137,11 @@ def api_pump_total_predict_history(
 
 
 @app.get("/api/recommend")
-def api_recommend(
-    from_ts: Optional[str] = Query(None, alias="from"),
-    to_ts: Optional[str] = Query(None, alias="to"),
-    start: str = Query("-24h"),
-    every: str = Query("10m"),
-):
-    s, e = _range_args(from_ts, to_ts, start)
-    return 
+def api_suggestion():
+    return control_service.suggestion()
+
+
+
+
 #.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000
 

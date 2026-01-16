@@ -2,8 +2,6 @@ from .influx_client import query_api, BUCKET, flux_to_df
 
 #Chiller_power
 chiller_power_tag = [
-    "Winenergy.P1CH01.kW",
-    "Winenergy.P1CH02.kW",
     "Winenergy.P2CH01.kW",
     "Winenergy.P2CH02.kW"
 ]
