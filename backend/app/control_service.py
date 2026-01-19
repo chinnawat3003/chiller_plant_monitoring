@@ -114,14 +114,28 @@ def df_chiller_temp_history(start="-24h", stop="now()", every="10m"):
     return _pivot_history_to_records(df)
 
 
-#chiller_temp_history
+#chiller_temp
+def df_chiller_tank_temp():
+    df = chiller_query.chiller_tank_temp()
+
+    return build_param_response(df)
+
 def df_chiller_tank_temp_history(start="-24h", stop="now()", every="10m"):
     df = chiller_query.chiller_tank_temp_history(start, stop, every)
     return _pivot_history_to_records(df)
 
 
+def df_pump_power():
+    df = chiller_query.pump_power()
+
+    return build_param_response(df)
 
 #Thermoform
+def df_thermoform_power():
+    df = chiller_query.thermoform_power()
+    return build_param_response(df)
+
+#history
 def df_thermoform_power_history(start="-24h", stop="now()", every="10m"):
     df = chiller_query.thermoform_power_history(start, stop, every)
     return _pivot_history_to_records(df)
@@ -578,6 +592,11 @@ def suggestion():
                     "suggest": "-",
                     "reason": "-"
                 }
+    
+
+#limit
+def limit_power_input():
+    data = df_chiller_power()
     
 
 if __name__ == "__main__":

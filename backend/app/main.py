@@ -57,12 +57,32 @@ def df_chiller_temp():
     res = control_service.df_chiller_temp()
     return {"ok": True, **res}
 
+@app.get("/api/thermoform_power")
+def api_thermoform_power():
+    res = control_service.df_thermoform_power()
+    
+    if not res:
+        raise HTTPException(404, "no data")
+    return {"ok": True, **res}
+
+
+@app.get("/api/chiller_tank_temp")
+def api_chiller_tank_temp():
+    res = control_service.df_chiller_tank_temp()
+    
+    if not res:
+        raise HTTPException(404, "no data")
+    return {"ok": True, **res}
+
+
 @app.get("/api/cop")
 def api_cop():
     res = control_service.df_cop()
     if not res:
         raise HTTPException(404, "no data")
     return {"ok": True, **res}
+
+
 
 @app.get("/api/chiller_pw_history")
 def api_chiller_pw_history(
@@ -108,6 +128,30 @@ def api_chiller_temp_history(
     s, e = _range_args(from_ts, to_ts, start)
     res = control_service.df_chiller_temp_history(start=s, stop=e, every=every)
     return {"ok": True, "history": res}
+
+@app.get("/api/thermoform_power_history")
+def api_thermoform_power_history(
+    from_ts: Optional[str] = Query(None, alias="from"),
+    to_ts: Optional[str] = Query(None, alias="to"),
+    start: str = Query("-24h"),
+    every: str = Query("10m"),
+):
+    s, e = _range_args(from_ts, to_ts, start)
+    res = control_service.df_thermoform_power_history(start=s, stop=e, every=every)
+    return {"ok": True, "history": res}
+
+@app.get("/api/chiller_tank_temp_history")
+def api_chiller_tank_temp_history(
+    from_ts: Optional[str] = Query(None, alias="from"),
+    to_ts: Optional[str] = Query(None, alias="to"),
+    start: str = Query("-24h"),
+    every: str = Query("10m"),
+):
+    s, e = _range_args(from_ts, to_ts, start)
+    res = control_service.df_chiller_tank_temp_history(start=s, stop=e, every=every)
+    return {"ok": True, "history": res}
+
+
 
 @app.get("/api/pump_power_cost_history")
 def api_pump_power_cost_history(

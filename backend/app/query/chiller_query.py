@@ -152,6 +152,21 @@ tank_tag = [
     "Chiller.PLANT_Node2.CLG2_TEMP_CHWS"
 ]
 #history
+def chiller_tank_temp():
+    tags = '["' + '","'.join(tank_tag) + '"]'
+    
+    flux = f'''
+        from(bucket:"{BUCKET}")
+        |> range(start:-1m)
+        |> filter(fn:(r)=> r["_measurement"]=="UTIL")
+        |> filter(fn:(r)=> r["_field"]=="value")
+        |> filter(fn:(r)=> contains(value: r["Source_tag"], set: {tags}))
+        |> group(columns:["Source_tag"])
+        |> last()
+        '''
+    
+    return flux_to_df(flux)
+
 def chiller_tank_temp_history(start="-24h", stop="now()", every="10m"):
     tag_filter = " or ".join([f'r["Source_tag"] == "{t}"' for t in tank_tag])
 
@@ -173,6 +188,21 @@ tf_tag = [
 
 ]
 
+def thermoform_power():
+    tags = '["' + '","'.join(tf_tag) + '"]'
+    
+    flux = f'''
+        from(bucket:"{BUCKET}")
+        |> range(start:-1m)
+        |> filter(fn:(r)=> r["_measurement"]=="PwrMeter")
+        |> filter(fn:(r)=> r["_field"]=="value")
+        |> filter(fn:(r)=> contains(value: r["Source_tag"], set: {tags}))
+        |> group(columns:["Source_tag"])
+        |> last()
+        '''
+    
+    return flux_to_df(flux)
+
 #history
 def thermoform_power_history(start="-24h", stop="now()", every="10m"):
     tag_filter = " or ".join([f'r["Source_tag"] == "{t}"' for t in tf_tag])
@@ -185,3 +215,4 @@ def thermoform_power_history(start="-24h", stop="now()", every="10m"):
         |> keep(columns: ["_time", "_value", "Source_tag"])
         '''
     return flux_to_df(flux)
+
