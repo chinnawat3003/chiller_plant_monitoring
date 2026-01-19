@@ -488,8 +488,33 @@ def suggestion():
         percent_load = 85 #%
         power_P2CH1 = "Winenergy.P2CH01.kW"
         power_P2CH2 = "Winenergy.P2CH02.kW"
-
         result_df = pull_data(start=start, stop=stop, every=every)
+        ch_now = df_chiller_power()
+        #power check
+        which_one_on = "None"
+        
+        """
+            
+        result_df["P2CH1_on"] = result_df[power_P2CH1] > 50 #check on-off
+        P2CH1_on = result_df["P2CH1_on"].all()
+        result_df["P2CH2_on"] = result_df[power_P2CH2] > 50
+        P2CH2_on = result_df["P2CH2_on"].all()
+        """
+
+        p1 = ch_now["param"]["Winenergy.P2CH01.kW"]["data"]
+        p2 = ch_now["param"]["Winenergy.P2CH02.kW"]["data"]
+        P2CH1_on = p1 > 50
+        P2CH2_on = p2 > 50
+
+        #%Load calculation
+        result_df["percent_load_p2_ch1"] = ((result_df[power_P2CH1] / power_peak) * 100) > percent_load
+        result_df["percent_load_p2_ch2"] = ((result_df[power_P2CH2] / power_peak) * 100) > percent_load
+        
+        P2CH1_over = result_df["percent_load_p2_ch1"].all()        
+        P2CH2_over = result_df["percent_load_p2_ch2"].all()
+
+
+        
         
         cooling_df = df_cooling_capa_history(start=start, stop=stop, every=every)
         cooling_df = cooling_df.dropna(subset=["cooling_capa"])
@@ -498,7 +523,7 @@ def suggestion():
         all_true_cooling_capa = cooling_df["p2_cooling_capa_out"].all()
         
         #cooling_capa check
-        if all_true_cooling_capa == True:
+        if all_true_cooling_capa == True: #cooling over
             last = cooling_df.iloc[-1]
             return {
                 "ok": True,
@@ -507,30 +532,45 @@ def suggestion():
                 "reason": f"Cooling capa more than {cooling_low} at {round(last["cooling_capa"], 2)}"
             }
         
-        if all_true_cooling_capa == False:
+        else:
             
-            last = cooling_df.iloc[-1]
-            return {
-                "ok": True,
-                "status": "Now 1 Chiller ON",
-                "suggest": "-",
-                "reason": f"Cooling capa less than {cooling_low} at {round(last["cooling_capa"], 2)}"
-            }
+            if P2CH1_on == True: #chiller1 on and %Load over
+                which_one_on = power_P2CH1
+                if P2CH1_over == True: 
+                    return {
+                        "ok": True,
+                        "status": "Now P2CH1 ON",
+                        "suggest": "ON 2 Chiller",
+                        "reason": f"%load more than {percent_load} %"
+                    }
+                else: #%load in range
+                    last = cooling_df.iloc[-1]
+                    return {
+                        "ok": True,
+                        "status": "Now P2CH1 ON",
+                        "suggest": "-",
+                        "reason": f"Cooling capa less than {cooling_low} at {round(last["cooling_capa"], 2)} and %load less than {percent_load} %"
+                    }
+                
+            if P2CH2_on == True: #chiller2 on and %Load over
+                which_one_on = power_P2CH2
+                if P2CH2_over == True:
+                    return {
+                        "ok": True,
+                        "status": "Now P2CH2 ON",
+                        "suggest": "ON 2 Chiller",
+                        "reason": f"%load more than {percent_load} %"
+                    }
+                else: 
+                    last = cooling_df.iloc[-1]
+                    return {
+                        "ok": True,
+                        "status": "Now P2CH2 ON",
+                        "suggest": "-",
+                        "reason": f"Cooling capa less than {cooling_low} at {round(last["cooling_capa"], 2)} and %load less than {percent_load} %"
+                    }
 
-        #power check
-        which_one_on = "None"
-
-        result_df["P2CH1_on"] = result_df[power_P2CH1] > 50 #check on-off
-        P2CH1_on = result_df["P2CH1_on"].all()
-        result_df["P2CH2_on"] = result_df[power_P2CH1] > 50
-        P2CH2_on = result_df["P2CH2_on"].all()
-
-        #%Load calculation
-        result_df["percent_load_p2_ch1"] = ((result_df[power_P2CH1] / power_peak) * 100) > power_peak
-        result_df["percent_load_p2_ch2"] = ((result_df[power_P2CH2] / power_peak) * 100) > power_peak
         
-        P2CH1_over = result_df["percent_load_p2_ch1"].all()        
-        P2CH2_over = result_df["percent_load_p2_ch2"].all()
 
 
         if P2CH1_on == True: #chiller1 on
@@ -566,6 +606,13 @@ def suggestion():
                     "suggest": "-",
                     "reason": f"%load less than {percent_load} %"
                 }
+        return {
+            "ok": True,
+            "status": "Now 1 Chiller ON",
+            "suggest": "-",
+            "reason": "No condition matched"
+        }
+
 
 
         
@@ -595,6 +642,12 @@ def suggestion():
                     "reason": "-"
                 }
     
+    return {
+        "ok": False,
+        "status": "Unknown state",
+        "suggest": "-",
+        "reason": "Invalid chiller status"
+    }
 
 #limit
 def limit_chiller_power_input():
