@@ -463,6 +463,7 @@ def suggestion():
         print(all_true_cooling_capa)
 
         if all_true_cooling_capa == True:
+            
             return {
                 "ok": True,
                 "status": "Now 2 Chiller ON",
@@ -483,7 +484,7 @@ def suggestion():
     
     def on_1_condition(start="-12h", stop="now()", every="15m", cooling_low=686):
         #constant
-        power_peak = 240
+        power_peak = 250
         percent_load = 85 #%
         power_P2CH1 = "Winenergy.P2CH01.kW"
         power_P2CH2 = "Winenergy.P2CH02.kW"
@@ -506,7 +507,8 @@ def suggestion():
                 "reason": f"Cooling capa more than {cooling_low} at {round(last["cooling_capa"], 2)}"
             }
         
-        if all_true_cooling_capa == False: 
+        if all_true_cooling_capa == False:
+            
             last = cooling_df.iloc[-1]
             return {
                 "ok": True,
@@ -595,9 +597,18 @@ def suggestion():
     
 
 #limit
-def limit_power_input():
+def limit_chiller_power_input():
     data = df_chiller_power()
-    
+    #if data = 0 
+    if data["param"]["Winenergy.P2CH01.kW"]["online"] or data["param"]["Winenergy.P2CH02.kW"]["online"]:
+        
+        data["limits"] = {"low": 75.0, "high": 250.0}
+    elif not (data["param"]["Winenergy.P2CH01.kW"]["online"] or data["param"]["Winenergy.P2CH02.kW"]["online"]):
+        
+        data["limits"] = {"low": 0.0, "high": 0.0}
+
+    return data
+
 
 if __name__ == "__main__":
     print(suggestion())

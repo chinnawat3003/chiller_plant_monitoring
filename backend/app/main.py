@@ -185,7 +185,9 @@ def api_suggestion():
     return control_service.suggestion()
 
 
-
+@app.get("/api/limit_chiller_power_input")
+def api_limit_chiller_power_input():
+    return control_service.limit_chiller_power_input()
 
 #.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000
 

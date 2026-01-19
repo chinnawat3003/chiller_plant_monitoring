@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { AgCharts } from "ag-charts-react";
 import { ModuleRegistry, AllCommunityModule } from "ag-charts-community";
 import type { AgChartOptions } from "ag-charts-community";
@@ -13,19 +13,46 @@ ModuleRegistry.registerModules([AllCommunityModule]);
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000";
 const HEALTH_URL = `${API_BASE}/health`;
 
-//  Sticky สำหรับ "Online (มีข้อมูล/ต่ออยู่)" เท่านั้น
+// Sticky สำหรับ "Online (มีข้อมูล/ต่ออยู่)" เท่านั้น
 const ONLINE_STICKY_TTL_MS = 30_000;
-const RUN_STICKY_TTL_MS = 10_000; // เขียวค้าง 10 วิถ้าเพิ่งทำงาน
+const RUN_STICKY_TTL_MS = 10_000;
 
-//  เงื่อนไข "เครื่องทำงาน" (Power kW > 0)
+// เงื่อนไข "เครื่องทำงาน" (Power kW > threshold)
 const RUN_THRESHOLD_KW = 10;
 
+/**
+ * ✅ CHARTS
+ * - endpoint: history ของกราฟ
+ * - limitEndpoint: limit ของกราฟนั้น ๆ (มีเฉพาะบางกราฟ)
+ */
 const CHARTS = {
-  chiller_pw: { label: "Chiller Power (kW)", endpoint: "/api/chiller_pw_history" },
-  pump_pw: { label: "Pump Power (kW)", endpoint: "/api/pump_pw_history" },
-  pump_flow: { label: "Pump Flow", endpoint: "/api/pump_flow_history" },
-  chiller_temp: { label: "Chiller Temp", endpoint: "/api/chiller_temp_history" },
-  thermoform_power: { label: "Thermoform Power (kW)", endpoint: "/api/thermoform_power_history" },
+  chiller_pw: {
+    label: "Chiller Power (kW)",
+    endpoint: "/api/chiller_pw_history",
+    limitEndpoint: "/api/limit_chiller_power_input", // ✅ ของจริงที่คุณใช้
+
+  },
+  pump_pw: {
+    label: "Pump Power (kW)",
+    endpoint: "/api/pump_pw_history",
+    limitEndpoint: undefined
+    // ไม่มี limitEndpoint = จะไม่ดึง limit
+  },
+  pump_flow: {
+    label: "Pump Flow",
+    endpoint: "/api/pump_flow_history",
+    limitEndpoint: undefined
+  },
+  chiller_temp: {
+    label: "Chiller Temp",
+    endpoint: "/api/chiller_temp_history",
+    limitEndpoint: undefined
+  },
+  thermoform_power: {
+    label: "Thermoform Power (kW)",
+    endpoint: "/api/thermoform_power_history",
+    limitEndpoint: undefined
+  },
 } as const;
 
 type ChartKey = keyof typeof CHARTS;
@@ -49,6 +76,42 @@ type CostRes = {
   ok: true;
   summary: { total_kwh: number; total_thb: number };
 };
+
+type Limits = { low?: number; high?: number };
+type LimitsRes = { ok: true; limits: { low: number; high: number } };
+
+/** =========================
+ * SPEED CACHE (ทำให้ reload/refresh เร็วขึ้น)
+ * ========================= */
+const HEALTH_TTL_MS = 5_000;
+const CACHE_TTL_CHART_MS = 60_000; // cache chart 60s
+const CACHE_TTL_LIMIT_MS = 10 * 60_000; // cache limit 10 นาที
+
+function cacheKeyChart(chartKey: ChartKey, chartUrl: string) {
+  return `dash_cache_chart::${chartKey}::${chartUrl}`;
+}
+function cacheKeyLimit(chartKey: ChartKey) {
+  return `dash_cache_limit::${chartKey}`;
+}
+function readCache<T>(key: string, ttlMs: number): T | null {
+  try {
+    const raw = sessionStorage.getItem(key);
+    if (!raw) return null;
+    const obj = JSON.parse(raw) as { ts: number; value: T };
+    if (!obj?.ts) return null;
+    if (Date.now() - obj.ts > ttlMs) return null;
+    return obj.value;
+  } catch {
+    return null;
+  }
+}
+function writeCache<T>(key: string, value: T) {
+  try {
+    sessionStorage.setItem(key, JSON.stringify({ ts: Date.now(), value }));
+  } catch {
+    // ignore
+  }
+}
 
 /** =========================
  * HELPERS
@@ -176,6 +239,9 @@ export default function DashboardPage() {
 
   const [liveData, setLiveData] = useState<Record<string, { online: boolean; data: number }>>({});
 
+  // ✅ limit แยกตามกราฟ
+  const [chartLimitsMap, setChartLimitsMap] = useState<Record<string, Limits>>({});
+
   const [suggestion, setSuggestion] = useState<SuggestionRes | null>(null);
   const [suggestionLoading, setSuggestionLoading] = useState(false);
   const [suggestionError, setSuggestionError] = useState<string | null>(null);
@@ -195,15 +261,17 @@ export default function DashboardPage() {
   const liveInFlight = useRef(false);
   const chartInFlight = useRef(false);
 
-  // ✅ Sticky online สำหรับ "data มาได้" เท่านั้น
+  // sticky status
   const lastSeenRef = useRef<Record<string, number>>({});
   const lastRunSeenRef = useRef<Record<string, number>>({});
 
+  // ✅ health cache ลด request health
+  const healthCacheRef = useRef<{ ts: number; ok: boolean }>({ ts: 0, ok: false });
+
   /** =========================
-   * TAGS (ปรับตรงนี้ได้ง่าย)
+   * TAGS
    * ========================= */
   const TAGS = {
-    // kW (ใช้ Running logic)
     CH1: "Winenergy.P2CH01.kW",
     CH2: "Winenergy.P2CH02.kW",
     P9: "Winenergy.P2CHP09.kW",
@@ -213,12 +281,11 @@ export default function DashboardPage() {
     TF5: "Modbus_TF5.18CT1.Main_Thermoform_kW_Cal",
     TF7: "Modbus_TF7.18CT1.Main_Thermoform_kW_Cal",
 
-    // Temp (ใช้ Online logic)
     TEMP_RETURN: "Chiller.PLANT_Node2.CLG2_TEMP_CHWR",
     TEMP_SUPPLY: "Chiller.PLANT_Node2.CLG2_TEMP_CHWS",
   };
 
-  // ✅ กลุ่ม TAG ที่ถือว่า "เครื่องทำงาน" = value > 0
+  // tag ที่ถือว่า "running" = value > threshold
   const RUN_TAGS = useMemo(
     () => new Set<string>([TAGS.CH1, TAGS.CH2, TAGS.P9, TAGS.P10, TAGS.P11, TAGS.TF4, TAGS.TF5, TAGS.TF7]),
     []
@@ -238,30 +305,64 @@ export default function DashboardPage() {
       data: chartData as any,
       series: chartSeries as any,
       axes: [
-        { type: "time", position: "bottom" } as any,
+        {
+          type: "time",
+          position: "bottom",
+          label: {
+            rotation: -25,         //  กันตัวหนังสือชนกัน
+            formatter: (p: any) => {
+              const d = new Date(p.value);
+              //  ถ้า range สั้น แสดงแค่เวลา
+              if (chartRange === "1h" || chartRange === "6h") {
+                return new Intl.DateTimeFormat("en-GB", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                }).format(d);
+              }
+              //  24h ขึ้นไป แสดงวัน + เวลา
+              return new Intl.DateTimeFormat("en-GB", {
+                day: "2-digit",
+                month: "2-digit",
+                hour: "2-digit",
+                minute: "2-digit",
+              }).format(d);
+            },
+          },
+        } as any,
         { type: "number", position: "left" } as any,
       ],
       legend: { position: "bottom" } as any,
     }),
-    [chartData, chartSeries]
+    [chartData, chartSeries, chartRange]
   );
+      
 
-  const pingHealth = async () => {
+  /** =========================
+   * HEALTH (cached)
+   * ========================= */
+  const pingHealth = useCallback(async () => {
+    const now = Date.now();
+    if (now - healthCacheRef.current.ts < HEALTH_TTL_MS) {
+      return healthCacheRef.current.ok;
+    }
+
     try {
       const res = await fetchJson<{ ok: boolean }>(HEALTH_URL, 2000);
-      if (!res?.ok) throw new Error("health not ok");
+      const ok = !!res?.ok;
+      healthCacheRef.current = { ts: now, ok };
+
+      if (!ok) throw new Error("health not ok");
       return true;
     } catch (e: any) {
+      healthCacheRef.current = { ts: now, ok: false };
       setApiErrMsg(e?.name === "AbortError" ? "FastAPI timeout" : "FastAPI not connected");
       return false;
     }
-  };
+  }, []);
 
   /** =========================
-   * ✅ STATUS LOGIC (สะอาด + ตรงเงื่อนไข)
+   * STATUS LOGIC
    * ========================= */
-
-  // 1) Online = เช็คว่ามีข้อมูลส่งมาหรือไม่ (มี sticky ลดกระพริบ)
   const getOnlineSt = (tag: string): TwoStatus => {
     if (apiStatus === "offline") return "offline";
 
@@ -272,7 +373,6 @@ export default function DashboardPage() {
       return "offline";
     }
 
-    // online flag จาก backend (หรือจะใช้ isFinite(data) ก็ได้)
     if (item.online || Number.isFinite(item.data)) {
       lastSeenRef.current[tag] = Date.now();
       return "online";
@@ -284,35 +384,26 @@ export default function DashboardPage() {
     return "offline";
   };
 
-  // 2) Running = เครื่องทำงานเมื่อ value > 0 (ไม่มี sticky เพื่อให้ตรงเงื่อนไข)
   const getRunSt = (tag: string, min = RUN_THRESHOLD_KW): TwoStatus => {
     if (apiStatus === "offline") return "offline";
 
     const v = Number(liveData?.[tag]?.data);
 
-    //  มีค่า > 0 = เครื่องทำงาน
     if (Number.isFinite(v) && v > min) {
       lastRunSeenRef.current[tag] = Date.now();
       return "online";
     }
 
-    //  ถ้าข้อมูลหาย/เป็น 0 แต่เพิ่งทำงานเมื่อกี้ ให้เขียวต่อกันกระพริบ
     const last = lastRunSeenRef.current[tag];
     if (last && Date.now() - last < RUN_STICKY_TTL_MS) return "online";
 
     return "offline";
   };
 
-
-  // helper เลือกสถานะให้ถูก type
-  const getSt = (tag: string): TwoStatus => {
-    return RUN_TAGS.has(tag) ? getRunSt(tag) : getOnlineSt(tag);
-  };
-
   const getVal = (tag: string) => (tag in liveData ? liveData[tag]?.data ?? null : null);
 
   /** =========================
-   * FETCH: LIVE DATA
+   * FETCH: LIVE DATA (NO LIMIT HERE!)
    * ========================= */
   const ONE_SHOT_GROUPS = useMemo(
     () => [
@@ -322,11 +413,12 @@ export default function DashboardPage() {
       { endpoint: "/api/chiller_temp" },
       { endpoint: "/api/thermoform_power" },
       { endpoint: "/api/chiller_tank_temp" },
+      // ✅ สำคัญ: ห้ามเอา limit มาใส่ใน oneshot ไม่งั้นจะปนกราฟอื่น
     ],
     []
   );
 
-  const fetchOneShot = async () => {
+  const fetchOneShot = useCallback(async () => {
     if (liveInFlight.current) return;
     liveInFlight.current = true;
 
@@ -340,10 +432,11 @@ export default function DashboardPage() {
       setApiStatus("online");
 
       const settled = await Promise.allSettled(
-        ONE_SHOT_GROUPS.map((g) => fetchJson<OneShotOk>(`${API_BASE}${g.endpoint}`, 3000))
+        ONE_SHOT_GROUPS.map((g) => fetchJson<OneShotOk>(`${API_BASE}${g.endpoint}`, 15000))
       );
 
       const combined: Record<string, { online: boolean; data: number }> = {};
+
       for (const s of settled) {
         if (s.status === "fulfilled" && s.value?.ok && s.value?.param) {
           Object.assign(combined, s.value.param);
@@ -353,19 +446,63 @@ export default function DashboardPage() {
       if (Object.keys(combined).length > 0) {
         setLiveData((prev) => ({ ...prev, ...combined }));
       }
-
-    } catch (e) {
+    } catch {
       setApiStatus("offline");
       setLiveData({});
     } finally {
       liveInFlight.current = false;
     }
-  };
+  }, [ONE_SHOT_GROUPS, pingHealth]);
+
+  /** =========================
+   * FETCH: LIMIT PER CHART (cached)
+   * ========================= */
+  const fetchLimitsForChart = useCallback(
+    async (ck: ChartKey): Promise<Limits> => {
+      const limitEp = CHARTS[ck]?.limitEndpoint;
+      if (!limitEp) return {};
+
+      // 1) session cache
+      const cached = readCache<Limits>(cacheKeyLimit(ck), CACHE_TTL_LIMIT_MS);
+      if (cached && (cached.low !== undefined || cached.high !== undefined)) {
+        setChartLimitsMap((prev) => ({ ...prev, [ck]: cached }));
+        return cached;
+      }
+
+      // 2) state cache
+      const existing = chartLimitsMap[ck];
+      if (existing && (existing.low !== undefined || existing.high !== undefined)) {
+        return existing;
+      }
+
+      // 3) fetch from API
+      try {
+        const ok = await pingHealth();
+        if (!ok) throw new Error("FastAPI offline");
+        setApiStatus("online");
+
+        const res = await fetchJson<LimitsRes>(`${API_BASE}${limitEp}`, 4000);
+
+        const limits: Limits = {
+          low: res?.limits?.low,
+          high: res?.limits?.high,
+        };
+
+        setChartLimitsMap((prev) => ({ ...prev, [ck]: limits }));
+        writeCache(cacheKeyLimit(ck), limits);
+
+        return limits;
+      } catch {
+        return {};
+      }
+    },
+    [chartLimitsMap, pingHealth]
+  );
 
   /** =========================
    * FETCH: SUGGESTION
    * ========================= */
-  const fetchSuggestion = async () => {
+  const fetchSuggestion = useCallback(async () => {
     setSuggestionLoading(true);
     setSuggestionError(null);
     try {
@@ -380,12 +517,12 @@ export default function DashboardPage() {
     } finally {
       setSuggestionLoading(false);
     }
-  };
+  }, [pingHealth]);
 
   /** =========================
    * FETCH: COST
    * ========================= */
-  const fetchCost = async () => {
+  const fetchCost = useCallback(async () => {
     setCostLoading(true);
     setCostError(null);
     try {
@@ -397,6 +534,7 @@ export default function DashboardPage() {
       const url = `${API_BASE}/api/pump_power_cost_history?from=${encodeURIComponent(fromIso)}&to=${encodeURIComponent(
         toIso
       )}&every=1h`;
+
       const data = await fetchJson<CostRes>(url, 4000);
       setCost(data);
     } catch (e: any) {
@@ -405,24 +543,38 @@ export default function DashboardPage() {
     } finally {
       setCostLoading(false);
     }
-  };
+  }, [pingHealth]);
 
   /** =========================
-   * FETCH: CHART
+   * FETCH: CHART (fast + per-chart limit)
    * ========================= */
-  const fetchChart = async () => {
+  const fetchChart = useCallback(async () => {
     if (chartInFlight.current) return;
     chartInFlight.current = true;
 
     setChartLoading(true);
     setChartError(null);
 
+    // ✅ 1) โชว์ cache ขึ้นก่อนให้เร็ว
+    const cachedChart = readCache<{ data: any[]; series: any[] }>(cacheKeyChart(chartKey, chartUrl), CACHE_TTL_CHART_MS);
+    if (cachedChart?.data?.length && cachedChart?.series?.length) {
+      setChartData(cachedChart.data);
+      setChartSeries(cachedChart.series);
+    }
+
     try {
       const ok = await pingHealth();
       if (!ok) throw new Error("FastAPI offline");
       setApiStatus("online");
 
-      const json = await fetchJson<any>(chartUrl, 6000);
+      const hasLimit = !!CHARTS[chartKey].limitEndpoint;
+
+      // ✅ 2) ดึง history + limit แบบ parallel (limit เฉพาะกราฟที่มี)
+      const [json, limits] = await Promise.all([
+        fetchJson<any>(chartUrl, 6000),
+        hasLimit ? fetchLimitsForChart(chartKey) : Promise.resolve<Limits>({}),
+      ]);
+
       const history = Array.isArray(json?.history) ? json.history : [];
       if (!json?.ok || history.length === 0) {
         setChartData([]);
@@ -436,8 +588,8 @@ export default function DashboardPage() {
         .sort((a: any, b: any) => +a.ts - +b.ts);
 
       const rawKeys = Object.keys(data[0] || {}).filter((k) => k !== "ts");
-
       const keys = rawKeys.filter((k) => data.some((r: any) => r[k] !== null && r[k] !== undefined));
+
       if (keys.length === 0) {
         setChartData([]);
         setChartSeries([]);
@@ -448,23 +600,61 @@ export default function DashboardPage() {
       const keyMap: Record<string, string> = {};
       keys.forEach((k) => (keyMap[k] = sanitizeKey(k)));
 
+      // ✅ สำคัญ: ถ้าไม่ใช่กราฟที่มี limit ให้เป็น NaN
+      const low = hasLimit ? Number(limits.low) : NaN;
+      const high = hasLimit ? Number(limits.high) : NaN;
+
       const safeData = data.map((row: any) => {
         const out: any = { ts: row.ts };
         keys.forEach((k) => (out[keyMap[k]] = row[k]));
+
+        // ✅ limit ของกราฟตัวเองเท่านั้น
+        if (hasLimit && Number.isFinite(low)) out.limit_low = low;
+        if (hasLimit && Number.isFinite(high)) out.limit_high = high;
+
         return out;
       });
 
-      setChartData(safeData);
-      setChartSeries(
-        keys.map((k) => ({
+      const baseSeries = keys.map((k) => ({
+        type: "line",
+        xKey: "ts",
+        yKey: keyMap[k],
+        yName: k,
+        strokeWidth: 2,
+        marker: { enabled: false },
+      }));
+
+      const limitSeries: any[] = [];
+      if (hasLimit && Number.isFinite(low)) {
+        limitSeries.push({
           type: "line",
           xKey: "ts",
-          yKey: keyMap[k],
-          yName: k,
+          yKey: "limit_low",
+          yName: "Limit Low",
           strokeWidth: 2,
           marker: { enabled: false },
-        }))
-      );
+          lineDash: [6, 6],
+        });
+      }
+      if (hasLimit && Number.isFinite(high)) {
+        limitSeries.push({
+          type: "line",
+          xKey: "ts",
+          yKey: "limit_high",
+          yName: "Limit High",
+          strokeWidth: 2,
+          marker: { enabled: false },
+          lineDash: [6, 6],
+        });
+      }
+
+      const finalSeries = [...baseSeries, ...limitSeries];
+
+      setChartData(safeData);
+      setChartSeries(finalSeries);
+
+      // ✅ 3) เขียน cache ให้ reload ครั้งต่อไปเร็วมาก
+      writeCache(cacheKeyChart(chartKey, chartUrl), { data: safeData, series: finalSeries });
     } catch (e: any) {
       setChartData([]);
       setChartSeries([]);
@@ -474,7 +664,7 @@ export default function DashboardPage() {
       setChartLoading(false);
       chartInFlight.current = false;
     }
-  };
+  }, [chartKey, chartUrl, fetchLimitsForChart, pingHealth]);
 
   /** =========================
    * EFFECTS
@@ -487,17 +677,14 @@ export default function DashboardPage() {
 
     const interval = setInterval(() => {
       fetchOneShot();
-      fetchSuggestion();
     }, 10_000);
 
     return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [fetchOneShot, fetchSuggestion, fetchCost, fetchChart]);
 
   useEffect(() => {
     fetchChart();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chartUrl]);
+  }, [chartUrl, fetchChart]);
 
   const banner =
     apiStatus === "online"
@@ -549,18 +736,15 @@ export default function DashboardPage() {
           </div>
 
           <SectionHeader title="Chiller Power" />
-          {/* ✅ Power ใช้ Running: value > 0 */}
           <StatusDot label="P2CH01" value={getVal(TAGS.CH1)} status={getRunSt(TAGS.CH1)} unit="kW" />
           <StatusDot label="P2CH02" value={getVal(TAGS.CH2)} status={getRunSt(TAGS.CH2)} unit="kW" />
 
           <SectionHeader title="Pump Power" />
-          {/* ✅ Power ใช้ Running */}
           <StatusDot label="P2CHP09" value={getVal(TAGS.P9)} status={getRunSt(TAGS.P9)} unit="kW" />
           <StatusDot label="P2CHP10" value={getVal(TAGS.P10)} status={getRunSt(TAGS.P10)} unit="kW" />
           <StatusDot label="P2CHP11" value={getVal(TAGS.P11)} status={getRunSt(TAGS.P11)} unit="kW" />
 
           <SectionHeader title="Temperature" />
-          {/* ✅ Temp ใช้ Online (เช็คว่ามีข้อมูลมา/ต่ออยู่) */}
           <StatusDot label="Return" value={getVal(TAGS.TEMP_RETURN)} status={getOnlineSt(TAGS.TEMP_RETURN)} unit="°C" />
           <StatusDot label="Supply" value={getVal(TAGS.TEMP_SUPPLY)} status={getOnlineSt(TAGS.TEMP_SUPPLY)} unit="°C" />
         </div>
