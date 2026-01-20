@@ -757,49 +757,127 @@ export default function DashboardPage() {
           <div
             style={{
               border: "1px solid #333",
-              borderRadius: 4,
+              borderRadius: 8,
               padding: 20,
               position: "relative",
               background: "#0a0a0a",
+              overflow: "hidden",
+              height: 320,
             }}
           >
-            <h2 style={{ textAlign: "center", marginBottom: 30 }}>Chiller Plant Diagram</h2>
-            
+            <h2 style={{ textAlign: "center", marginBottom: 18 }}>Chiller Plant Diagram</h2>
 
-            
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-around", height: 200 }}>
-              <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+            {/* === SVG PIPE + ARROWS (BACKGROUND) === */}
+            <svg
+              style={{
+                position: "absolute",
+                left: 0,
+                top: 0,
+                width: "100%",
+                height: "100%",
+                pointerEvents: "none",
+                zIndex: 1,
+                opacity: 0.95,
+              }}
+              viewBox="0 0 1200 320"
+              preserveAspectRatio="none"
+            >
+              <defs>
+                <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+                  <path d="M0,0 L10,5 L0,10 Z" fill="rgba(255,255,255,0.95)" />
+                </marker>
+
+                <filter id="glow">
+                  <feGaussianBlur stdDeviation="1.6" result="b" />
+                  <feMerge>
+                    <feMergeNode in="b" />
+                    <feMergeNode in="SourceGraphic" />
+                  </feMerge>
+                </filter>
+              </defs>
+
+              {/* Main header line */}
+              <path
+                d="M60 160 H390"
+                stroke="rgba(255,255,255,0.85)"
+                strokeWidth="3"
+                fill="none"
+                markerEnd="url(#arrow)"
+                filter="url(#glow)"
+              />
+
+              {/* Node 1 */}
+              <circle cx="390" cy="160" r="7" fill="#0a0a0a" stroke="rgba(255,255,255,0.85)" strokeWidth="3" />
+
+              {/* Branch from CH -> TF header */}
+              <path d="M390 160 H460" stroke="rgba(255,255,255,0.85)" strokeWidth="3" fill="none" markerEnd="url(#arrow)" />
+
+              {/* TF branches */}
+              <path d="M460 160 V92  H560" stroke="rgba(255,255,255,0.85)" strokeWidth="3" fill="none" markerEnd="url(#arrow)" />
+              <path d="M460 160       H560" stroke="rgba(255,255,255,0.85)" strokeWidth="3" fill="none" markerEnd="url(#arrow)" />
+              <path d="M460 160 V228 H560" stroke="rgba(255,255,255,0.85)" strokeWidth="3" fill="none" markerEnd="url(#arrow)" />
+
+              {/* TF return "bus" (vertical) */}
+              <path d="M710 92 V228" stroke="rgba(255,255,255,0.35)" strokeWidth="3" fill="none" />
+
+              {/* Back to main line */}
+              <path d="M710 160 H820" stroke="rgba(255,255,255,0.85)" strokeWidth="3" fill="none" markerEnd="url(#arrow)" />
+
+              {/* Node 2 */}
+              <circle cx="820" cy="160" r="7" fill="#0a0a0a" stroke="rgba(255,255,255,0.85)" strokeWidth="3" />
+
+              {/* Pump branches */}
+              <path d="M820 160 H870" stroke="rgba(255,255,255,0.85)" strokeWidth="3" fill="none" markerEnd="url(#arrow)" />
+              <path d="M870 160 V104 H980" stroke="rgba(255,255,255,0.85)" strokeWidth="3" fill="none" markerEnd="url(#arrow)" />
+              <path d="M870 160       H980" stroke="rgba(255,255,255,0.85)" strokeWidth="3" fill="none" markerEnd="url(#arrow)" />
+              <path d="M870 160 V216 H980" stroke="rgba(255,255,255,0.85)" strokeWidth="3" fill="none" markerEnd="url(#arrow)" />
+            </svg>
+
+            {/* === CONTENT (FOREGROUND) === */}
+            <div
+              style={{
+                position: "relative",
+                zIndex: 2,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-around",
+                height: 240,
+                paddingTop: 10,
+              }}
+            >
+              {/* CH */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
                 <MachineBox label="CH1" subLabel="P2CH01" status={getRunSt(TAGS.CH1)} />
                 <MachineBox label="CH2" subLabel="P2CH02" status={getRunSt(TAGS.CH2)} />
               </div>
 
-              <ArrowRight />
-
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {/* TF */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                 <MachineBox label="TF4" status={getRunSt(TAGS.TF4)} />
                 <MachineBox label="TF5" status={getRunSt(TAGS.TF5)} />
                 <MachineBox label="TF7" status={getRunSt(TAGS.TF7)} />
               </div>
 
-              <ArrowRight />
-
-              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {/* PUMP */}
+              <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                 <MachineBox label="P9" subLabel="P2CHP09" status={getRunSt(TAGS.P9)} />
                 <MachineBox label="P10" subLabel="P2CHP10" status={getRunSt(TAGS.P10)} />
                 <MachineBox label="P11" subLabel="P2CHP11" status={getRunSt(TAGS.P11)} />
               </div>
             </div>
 
+            {/* เส้นโค้งล่างเดิม (จะเอาออกก็ได้) */}
             <div
               style={{
                 position: "absolute",
-                bottom: 20,
+                bottom: 18,
                 left: 40,
                 right: 40,
                 height: 10,
                 border: "1px dashed #444",
                 borderTop: "none",
                 borderRadius: "0 0 20px 20px",
+                zIndex: 0,
               }}
             />
           </div>
