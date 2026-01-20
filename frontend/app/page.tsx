@@ -783,8 +783,16 @@ export default function DashboardPage() {
               preserveAspectRatio="none"
             >
               <defs>
-                <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
-                  <path d="M0,0 L10,5 L0,10 Z" fill="rgba(255,255,255,0.95)" />
+                <marker
+                  id="arrow"
+                  markerUnits="strokeWidth"
+                  markerWidth="8"
+                  markerHeight="8"
+                  refX="7"
+                  refY="4"
+                  orient="auto"
+                >
+                  <path d="M0,0 L8,4 L0,8 Z" fill="rgba(255,255,255,0.95)" />
                 </marker>
 
                 <filter id="glow">
@@ -806,31 +814,60 @@ export default function DashboardPage() {
                 filter="url(#glow)"
               />
 
-              {/* Node 1 */}
-              <circle cx="390" cy="160" r="7" fill="#0a0a0a" stroke="rgba(255,255,255,0.85)" strokeWidth="3" />
+              <path d="M320 195 V150 H260" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none"  />
+              <path d="M320 195 V228 H260" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none"  />
 
-              {/* Branch from CH -> TF header */}
-              <path d="M390 160 H460" stroke="rgba(255,255,255,0.85)" strokeWidth="3" fill="none" markerEnd="url(#arrow)" />
+              <path d="M320 190 H460" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none"  />
+
+              {/* Node 1 */}
+              <circle cx="320" cy="190" r="7" fill="#000000" stroke="rgba(255,255,255,0.85)" strokeWidth="2" />
 
               {/* TF branches */}
-              <path d="M460 160 V92  H560" stroke="rgba(255,255,255,0.85)" strokeWidth="3" fill="none" markerEnd="url(#arrow)" />
-              <path d="M460 160       H560" stroke="rgba(255,255,255,0.85)" strokeWidth="3" fill="none" markerEnd="url(#arrow)" />
-              <path d="M460 160 V228 H560" stroke="rgba(255,255,255,0.85)" strokeWidth="3" fill="none" markerEnd="url(#arrow)" />
+              <path d="M460 190 V128  H550" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" markerEnd="url(#arrow)" />
+              <path d="M460 190       H550" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" markerEnd="url(#arrow)" />
+              <path d="M460 190 V248 H550" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" markerEnd="url(#arrow)" />
+              
+              <circle cx="460" cy="190" r="7" fill="#000000" stroke="rgba(255,255,255,0.85)" strokeWidth="2" />
+              
+              <path d="M760 190 V128 H640" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none"  />
+              <path d="M760 190       H640" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" />
+              <path d="M760 190 V248 H640" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none"  />
 
-              {/* TF return "bus" (vertical) */}
-              <path d="M710 92 V228" stroke="rgba(255,255,255,0.35)" strokeWidth="3" fill="none" />
 
               {/* Back to main line */}
-              <path d="M710 160 H820" stroke="rgba(255,255,255,0.85)" strokeWidth="3" fill="none" markerEnd="url(#arrow)" />
+              <path d="M760 190 H870" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" />
 
               {/* Node 2 */}
-              <circle cx="820" cy="160" r="7" fill="#0a0a0a" stroke="rgba(255,255,255,0.85)" strokeWidth="3" />
+              <circle cx="760" cy="190" r="7" fill="#0a0a0a" stroke="rgba(255,255,255,0.85)" strokeWidth="2" />
 
-              {/* Pump branches */}
-              <path d="M820 160 H870" stroke="rgba(255,255,255,0.85)" strokeWidth="3" fill="none" markerEnd="url(#arrow)" />
-              <path d="M870 160 V104 H980" stroke="rgba(255,255,255,0.85)" strokeWidth="3" fill="none" markerEnd="url(#arrow)" />
-              <path d="M870 160       H980" stroke="rgba(255,255,255,0.85)" strokeWidth="3" fill="none" markerEnd="url(#arrow)" />
-              <path d="M870 160 V216 H980" stroke="rgba(255,255,255,0.85)" strokeWidth="3" fill="none" markerEnd="url(#arrow)" />
+                {/**ทิศทางซ้ายขวา ซ้ายขวา ทิศทางบนล่าง สูง ทิศทางซ้ายขวา*/}
+              <path d="M870 190 V115 H935" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" markerEnd="url(#arrow)"/>
+              <path d="M870 190       H935" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" markerEnd="url(#arrow)"/>
+              <path d="M870 190 V263 H935" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" markerEnd="url(#arrow)"/>
+
+              <circle cx="870" cy="190" r="7" fill="#0a0a0a" stroke="rgba(255,255,255,0.85)" strokeWidth="2" />
+
+              <path d="M1100 190 V115 H1030" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" />
+              <path d="M1100 190       H1030" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" />
+              <path d="M1100 190 V263 H1030" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" />
+
+              <path d="M1150 190 H1100" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none"  />
+
+              <circle cx="1100" cy="190" r="7" fill="#0a0a0a" stroke="rgba(255,255,255,0.85)" strokeWidth="2" />
+
+              <path d="M1150 190 V70" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" />
+
+              <path d="M60 70 H1150" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none"  />
+
+              <path d="M60 190 V70" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" />
+
+              <path d="M60 190 H100" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none"  />
+
+              <path d="M100 190 V150  H165" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" markerEnd="url(#arrow)" />
+              <path d="M100 190 V227  H165" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" markerEnd="url(#arrow)" />
+
+              <circle cx="100" cy="190" r="7" fill="#0a0a0a" stroke="rgba(255,255,255,0.85)" strokeWidth="2" />
+
             </svg>
 
             {/* === CONTENT (FOREGROUND) === */}
