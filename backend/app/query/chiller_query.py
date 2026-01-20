@@ -18,7 +18,7 @@ def chiller_power():
         |> filter(fn:(r)=> contains(value: r["Source_tag"], set: {tags}))
         |> group(columns:["Source_tag"])
         |> last()
-        '''
+        ''' 
     
     return flux_to_df(flux)
 
@@ -74,7 +74,7 @@ def pump_power_history(start="-24h", stop="now()", every="15m"):
 #Flow
 #need to convert from counter to m3/h first
 flow_tag = [
-    "Winenergy.P1CH01.Flow_Counter",
+    
     "Winenergy.P2CH01.Flow_Counter"
 ]
 def pump_flow():

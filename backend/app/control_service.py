@@ -5,6 +5,9 @@ from . import config
 import pandas as pd
 import numpy as np
 import re
+
+test_mockup = True
+
 def _float_or_none(v):
     if v is None:
         return None
@@ -70,9 +73,25 @@ def _pivot_history_to_records(df: pd.DataFrame):
 #-------Chiller power-------#
 def df_chiller_power():
     df = chiller_query.chiller_power()
-    print(type(df))
+    result = build_param_response(df, include_total=True)
 
-    return  build_param_response(df, include_total=True)
+    if test_mockup:
+        result ={
+            "ok": True,
+            "ts": "2026-01-19T04:14:33.888531+00:00",
+            "param": {
+                "Winenergy.P2CH01.kW": {
+                "online": False,
+                "data": 0
+                },
+                "Winenergy.P2CH02.kW": {
+                "online": True,
+                "data": 150
+                }
+            },
+            "total": 250,
+            }
+    return  result
 
 def df_chiller_power_history(start="-20d", stop="now()", every = "30m"):
     df = chiller_query.chiller_power_history(start, stop, every)
@@ -84,8 +103,29 @@ def df_chiller_power_history(start="-20d", stop="now()", every = "30m"):
 #-------pump_power-------#
 def df_pump_power():
     df = chiller_query.pump_power()
+    result = build_param_response(df)
 
-    return build_param_response(df)
+    if test_mockup:
+        result ={
+            "ok": True,
+            "ts": "2026-01-19T04:14:33.888531+00:00",
+            "param": {
+                "Winenergy.P2CHP09.kW": {
+                "online": True,
+                "data": 78.90409088134766
+                },
+                "Winenergy.P2CHP10.kW": {
+                "online": False,
+                "data": 0
+                },
+                "Winenergy.P2CHP11.kW": {
+                "online": True,
+                "data": 90.5
+                }
+            },
+            "total": 78.90409088134766,
+        }
+    return result
 
 def df_pump_power_history(start="-24h", stop="now()", every="10m"):
     df = chiller_query.pump_power_history(start, stop, every)
@@ -95,9 +135,20 @@ def df_pump_power_history(start="-24h", stop="now()", every="10m"):
 #-------flow-------#
 def df_pump_flow():
     df = chiller_query.pump_flow()
-    print(type(df))
+    result = build_param_response(df)
 
-    return build_param_response(df)
+    if test_mockup:
+        result ={
+            "ok": True,
+            "ts": "2026-01-19T04:14:33.888531+00:00",
+            "param": {
+                "Winenergy.P2CH01.Flow_Counter": {
+                "online": True,
+                "data": 150.5
+                }
+            }
+        }
+    return result
 
 def df_pump_flow_history(start="-24h", stop="now()", every="10m"):
     df = chiller_query.pump_flow_history(start, stop, every)
@@ -106,8 +157,31 @@ def df_pump_flow_history(start="-24h", stop="now()", every="10m"):
 #------temp_chiller-------#
 def df_chiller_temp():
     df = chiller_query.chiller_temp()
-    print(type(df))
-    return build_param_response(df)
+    result = build_param_response(df, include_total=True)
+    if test_mockup:
+        result ={
+            "ok": True,
+            "ts": "2026-01-19T04:14:33.888531+00:00",
+            "param": {
+                "Chiller.PLANT_Node2.CLG2_CH01_EVAP_ENTERING_WATER_TEMP_1": {
+                "online": True,
+                "data": 11
+                },
+                "Chiller.PLANT_Node2.CLG2_CH01_EVAP_LEAVING_WATER_TEMP_1": {
+                "online": True,
+                "data": 9
+                },
+                "Chiller.PLANT_Node2.CLG2_CH02_EVAP_ENTERING_WATER_TEMP_1": {
+                "online": True,
+                "data": 11
+                },
+                "Chiller.PLANT_Node2.CLG2_CH02_EVAP_LEAVING_WATER_TEMP_1": {
+                "online": True,
+                "data": 9
+                },
+            },
+            }
+    return  result
 
 def df_chiller_temp_history(start="-24h", stop="now()", every="10m"):
     df = chiller_query.chiller_temp_history(start, stop, every)
@@ -117,18 +191,30 @@ def df_chiller_temp_history(start="-24h", stop="now()", every="10m"):
 #chiller_temp
 def df_chiller_tank_temp():
     df = chiller_query.chiller_tank_temp()
-
-    return build_param_response(df)
+    result = build_param_response(df, include_total=True)
+    if test_mockup:
+        result ={
+            "ok": True,
+            "ts": "2026-01-19T04:14:33.888531+00:00",
+            "param": {
+                "Chiller.PLANT_Node2.CLG2_TEMP_CHWR": {
+                "online": True,
+                "data": 11
+                },
+                "Chiller.PLANT_Node2.CLG2_TEMP_CHWS": {
+                "online": True,
+                "data": 9
+                },
+                
+            },
+            }
+    return  result
 
 def df_chiller_tank_temp_history(start="-24h", stop="now()", every="10m"):
     df = chiller_query.chiller_tank_temp_history(start, stop, every)
     return _pivot_history_to_records(df)
 
 
-def df_pump_power():
-    df = chiller_query.pump_power()
-
-    return build_param_response(df)
 
 #Thermoform
 def df_thermoform_power():
@@ -499,7 +585,7 @@ def suggestion():
         print(f"all_true_cooling_capa_p2 = {all_true_cooling_capa}")
         
     
-    def on_1_condition(start="-12h", stop="now()", every="15m", cooling_low=686):
+    def on_1_condition(start="-1h", stop="now()", every="15m", cooling_low=686):
         #constant
         power_peak = 250
         percent_load = 85 #%
@@ -509,14 +595,17 @@ def suggestion():
         ch_now = df_chiller_power()
         #power check
         which_one_on = "None"
+
         
         
             
-        result_df["P2CH1_on"] = result_df[power_P2CH1] > 50 #check on-off
+        """result_df["P2CH1_on"] = result_df[power_P2CH1] > 50 #check on-off
         P2CH1_on = result_df["P2CH1_on"].all()
         result_df["P2CH2_on"] = result_df[power_P2CH2] > 50
-        P2CH2_on = result_df["P2CH2_on"].all()
+        P2CH2_on = result_df["P2CH2_on"].all()"""
         
+        P2CH1_on = ch_now["param"]["Winenergy.P2CH01.kW"]["online"]
+        P2CH2_on = ch_now["param"]["Winenergy.P2CH02.kW"]["online"]
 
         #%Load calculation
         result_df["percent_load_p2_ch1"] = ((result_df[power_P2CH1] / power_peak) * 100) > percent_load

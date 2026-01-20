@@ -50,6 +50,8 @@ def api_pump_pw():
 @app.get("/api/pump_flow")
 def api_pump_flow():
     res = control_service.df_pump_flow()
+    if not res:
+        raise HTTPException(404, "no data")
     return {"ok": True, **res}
 
 @app.get("/api/chiller_temp")

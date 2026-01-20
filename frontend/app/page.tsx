@@ -21,7 +21,7 @@ const RUN_STICKY_TTL_MS = 10_000;
 const RUN_THRESHOLD_KW = 10;
 
 /**
- * ✅ CHARTS
+ * CHARTS
  * - endpoint: history ของกราฟ
  * - limitEndpoint: limit ของกราฟนั้น ๆ (มีเฉพาะบางกราฟ)
  */
@@ -29,7 +29,7 @@ const CHARTS = {
   chiller_pw: {
     label: "Chiller Power (kW)",
     endpoint: "/api/chiller_pw_history",
-    limitEndpoint: "/api/limit_chiller_power_input", // ✅ ของจริงที่คุณใช้
+    limitEndpoint: "/api/limit_chiller_power_input", //  ของจริงที่คุณใช้
 
   },
   pump_pw: {
@@ -239,7 +239,7 @@ export default function DashboardPage() {
 
   const [liveData, setLiveData] = useState<Record<string, { online: boolean; data: number }>>({});
 
-  // ✅ limit แยกตามกราฟ
+  // limit แยกตามกราฟ
   const [chartLimitsMap, setChartLimitsMap] = useState<Record<string, Limits>>({});
 
   const [suggestion, setSuggestion] = useState<SuggestionRes | null>(null);
@@ -283,6 +283,8 @@ export default function DashboardPage() {
 
     TEMP_RETURN: "Chiller.PLANT_Node2.CLG2_TEMP_CHWR",
     TEMP_SUPPLY: "Chiller.PLANT_Node2.CLG2_TEMP_CHWS",
+    
+    Flow: "Winenergy.P2CH01.Flow_Counter"
   };
 
   // tag ที่ถือว่า "running" = value > threshold
@@ -413,7 +415,7 @@ export default function DashboardPage() {
       { endpoint: "/api/chiller_temp" },
       { endpoint: "/api/thermoform_power" },
       { endpoint: "/api/chiller_tank_temp" },
-      // ✅ สำคัญ: ห้ามเอา limit มาใส่ใน oneshot ไม่งั้นจะปนกราฟอื่น
+      { endpoint: "/api/pump_flow" }
     ],
     []
   );
@@ -555,7 +557,7 @@ export default function DashboardPage() {
     setChartLoading(true);
     setChartError(null);
 
-    // ✅ 1) โชว์ cache ขึ้นก่อนให้เร็ว
+    //  1) โชว์ cache ขึ้นก่อนให้เร็ว
     const cachedChart = readCache<{ data: any[]; series: any[] }>(cacheKeyChart(chartKey, chartUrl), CACHE_TTL_CHART_MS);
     if (cachedChart?.data?.length && cachedChart?.series?.length) {
       setChartData(cachedChart.data);
@@ -749,6 +751,9 @@ export default function DashboardPage() {
           <SectionHeader title="Temperature" />
           <StatusDot label="Return" value={getVal(TAGS.TEMP_RETURN)} status={getOnlineSt(TAGS.TEMP_RETURN)} unit="°C" />
           <StatusDot label="Supply" value={getVal(TAGS.TEMP_SUPPLY)} status={getOnlineSt(TAGS.TEMP_SUPPLY)} unit="°C" />
+
+          <SectionHeader title="Flow" />
+          <StatusDot label="Return" value={getVal(TAGS.Flow)} status={getOnlineSt(TAGS.Flow)} unit="m³/h" />
         </div>
 
         {/* CENTER PANEL */}
