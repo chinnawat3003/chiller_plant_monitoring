@@ -12,7 +12,7 @@ def chiller_power():
     
     flux = f'''
         from(bucket:"{BUCKET}")
-        |> range(start:-1m)
+        |> range(start:-15m)
         |> filter(fn:(r)=> r["_measurement"]=="UTIL")
         |> filter(fn:(r)=> r["_field"]=="value")
         |> filter(fn:(r)=> contains(value: r["Source_tag"], set: {tags}))
@@ -23,7 +23,7 @@ def chiller_power():
     return flux_to_df(flux)
 
 #history
-def chiller_power_history(start="-24h", stop="now()", every="10m"):
+def chiller_power_history(start="-24h", stop="now()", every="15m"):
     tag_filter = " or ".join([f'r["Source_tag"] == "{t}"' for t in chiller_power_tag])
 
     flux = f'''
@@ -47,7 +47,7 @@ def pump_power():
     
     flux = f'''
         from(bucket:"{BUCKET}")
-        |> range(start:-1m)
+        |> range(start:-15m)
         |> filter(fn:(r)=> r["_measurement"]=="UTIL")
         |> filter(fn:(r)=> r["_field"]=="value")
         |> filter(fn:(r)=> contains(value: r["Source_tag"], set: {tags}))
@@ -58,7 +58,7 @@ def pump_power():
     return flux_to_df(flux)
 
 #history
-def pump_power_history(start="-24h", stop="now()", every="10m"):
+def pump_power_history(start="-24h", stop="now()", every="15m"):
     tag_filter = " or ".join([f'r["Source_tag"] == "{t}"' for t in pump_power_tag])
 
     flux = f'''
@@ -82,7 +82,7 @@ def pump_flow():
     
     flux = f'''
         from(bucket:"{BUCKET}")
-        |> range(start:-10m)
+        |> range(start:-15m)
         |> filter(fn:(r)=> r["_measurement"]=="UTIL")
         |> filter(fn:(r)=> r    ["_field"]=="value")
         |> filter(fn:(r)=> contains(value: r["Source_tag"], set: {tags}))   
@@ -93,7 +93,7 @@ def pump_flow():
     
     return flux_to_df(flux)
 #history
-def pump_flow_history(start="-24h", stop="now()", every="10m"):
+def pump_flow_history(start="-24h", stop="now()", every="15m"):
     tag_filter = " or ".join([f'r["Source_tag"] == "{t}"' for t in flow_tag])
 
     flux = f'''
@@ -123,7 +123,7 @@ def chiller_temp():
     
     flux = f'''
         from(bucket:"{BUCKET}")
-        |> range(start:-1m)
+        |> range(start:-15m)
         |> filter(fn:(r)=> r["_measurement"]=="UTIL")
         |> filter(fn:(r)=> r["_field"]=="value")
         |> filter(fn:(r)=> contains(value: r["Source_tag"], set: {tags}))
@@ -133,7 +133,7 @@ def chiller_temp():
     
     return flux_to_df(flux)
 #history
-def chiller_temp_history(start="-24h", stop="now()", every="10m"):
+def chiller_temp_history(start="-24h", stop="now()", every="15m"):
     tag_filter = " or ".join([f'r["Source_tag"] == "{t}"' for t in temp_tag])
 
     flux = f'''
@@ -157,7 +157,7 @@ def chiller_tank_temp():
     
     flux = f'''
         from(bucket:"{BUCKET}")
-        |> range(start:-1m)
+        |> range(start:-15m)
         |> filter(fn:(r)=> r["_measurement"]=="UTIL")
         |> filter(fn:(r)=> r["_field"]=="value")
         |> filter(fn:(r)=> contains(value: r["Source_tag"], set: {tags}))
@@ -167,7 +167,7 @@ def chiller_tank_temp():
     
     return flux_to_df(flux)
 
-def chiller_tank_temp_history(start="-24h", stop="now()", every="10m"):
+def chiller_tank_temp_history(start="-24h", stop="now()", every="15m"):
     tag_filter = " or ".join([f'r["Source_tag"] == "{t}"' for t in tank_tag])
 
     flux = f'''
@@ -193,7 +193,7 @@ def thermoform_power():
     
     flux = f'''
         from(bucket:"{BUCKET}")
-        |> range(start:-1m)
+        |> range(start:-5m)
         |> filter(fn:(r)=> r["_measurement"]=="PwrMeter")
         |> filter(fn:(r)=> r["_field"]=="value")
         |> filter(fn:(r)=> contains(value: r["Source_tag"], set: {tags}))
@@ -204,7 +204,7 @@ def thermoform_power():
     return flux_to_df(flux)
 
 #history
-def thermoform_power_history(start="-24h", stop="now()", every="10m"):
+def thermoform_power_history(start="-24h", stop="now()", every="15m"):
     tag_filter = " or ".join([f'r["Source_tag"] == "{t}"' for t in tf_tag])
 
     flux = f'''

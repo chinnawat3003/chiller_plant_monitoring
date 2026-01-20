@@ -600,7 +600,7 @@ export default function DashboardPage() {
       const keyMap: Record<string, string> = {};
       keys.forEach((k) => (keyMap[k] = sanitizeKey(k)));
 
-      // ✅ สำคัญ: ถ้าไม่ใช่กราฟที่มี limit ให้เป็น NaN
+      //  สำคัญ: ถ้าไม่ใช่กราฟที่มี limit ให้เป็น NaN
       const low = hasLimit ? Number(limits.low) : NaN;
       const high = hasLimit ? Number(limits.high) : NaN;
 
@@ -608,7 +608,7 @@ export default function DashboardPage() {
         const out: any = { ts: row.ts };
         keys.forEach((k) => (out[keyMap[k]] = row[k]));
 
-        // ✅ limit ของกราฟตัวเองเท่านั้น
+        //  limit ของกราฟตัวเองเท่านั้น
         if (hasLimit && Number.isFinite(low)) out.limit_low = low;
         if (hasLimit && Number.isFinite(high)) out.limit_high = high;
 
@@ -631,6 +631,7 @@ export default function DashboardPage() {
           xKey: "ts",
           yKey: "limit_low",
           yName: "Limit Low",
+          stroke: "#ff5252",   
           strokeWidth: 2,
           marker: { enabled: false },
           lineDash: [6, 6],
@@ -642,6 +643,7 @@ export default function DashboardPage() {
           xKey: "ts",
           yKey: "limit_high",
           yName: "Limit High",
+          stroke: "#fa6060", 
           strokeWidth: 2,
           marker: { enabled: false },
           lineDash: [6, 6],
@@ -762,7 +764,9 @@ export default function DashboardPage() {
             }}
           >
             <h2 style={{ textAlign: "center", marginBottom: 30 }}>Chiller Plant Diagram</h2>
+            
 
+            
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-around", height: 200 }}>
               <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
                 <MachineBox label="CH1" subLabel="P2CH01" status={getRunSt(TAGS.CH1)} />

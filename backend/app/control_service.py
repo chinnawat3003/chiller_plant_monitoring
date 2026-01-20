@@ -414,6 +414,9 @@ def suggestion:
         if on 1 chiller
 
 """
+
+
+
 def suggestion():
     def pull_data(start="-12h", stop="now()", every="15m"):
         
@@ -424,11 +427,25 @@ def suggestion():
         ch_temp_df = pd.DataFrame(df_chiller_temp_history(start=start, stop=stop, every=every))
         ch_flow_df = pd.DataFrame(df_pump_flow_history(start=start, stop=stop, every=every))
 
-        raw_df = pd.concat([ch_power_df, ch_temp_df, ch_flow_df], ignore_index=True).sort_values("ts")
-        print(raw_df.columns)
-        #wide = raw_df.pivot(index="ts", columns="Source_tag", values="value")
-        
+        for df in [ch_power_df, ch_temp_df, ch_flow_df]:
+            if not df.empty and "ts" in df.columns:
+                df["ts"] = pd.to_datetime(df["ts"], utc=True, errors="coerce")
+                df = df.dropna(subset=["ts"])
+                if df.empty:
+                    return pd.DataFrame()   # หรือ return {"ok": False, "error": "no data"}
 
+
+        
+        raw_df = ch_power_df
+
+        if not ch_temp_df.empty:
+            raw_df = pd.merge(raw_df, ch_temp_df, on="ts", how="outer")
+            
+        if not ch_flow_df.empty:
+            raw_df = pd.merge(raw_df, ch_flow_df, on="ts", how="outer")
+
+        # 4. เรียงเวลาและ Fillna (ถ้าจำเป็น)
+        raw_df = raw_df.sort_values("ts")
 
         print(raw_df)
         
@@ -493,18 +510,13 @@ def suggestion():
         #power check
         which_one_on = "None"
         
-        """
+        
             
         result_df["P2CH1_on"] = result_df[power_P2CH1] > 50 #check on-off
         P2CH1_on = result_df["P2CH1_on"].all()
         result_df["P2CH2_on"] = result_df[power_P2CH2] > 50
         P2CH2_on = result_df["P2CH2_on"].all()
-        """
-
-        p1 = ch_now["param"]["Winenergy.P2CH01.kW"]["data"]
-        p2 = ch_now["param"]["Winenergy.P2CH02.kW"]["data"]
-        P2CH1_on = p1 > 50
-        P2CH2_on = p2 > 50
+        
 
         #%Load calculation
         result_df["percent_load_p2_ch1"] = ((result_df[power_P2CH1] / power_peak) * 100) > percent_load
@@ -525,11 +537,14 @@ def suggestion():
         #cooling_capa check
         if all_true_cooling_capa == True: #cooling over
             last = cooling_df.iloc[-1]
+            val = float(last["cooling_capa"])
+            reason = f"Cooling capa more than {cooling_low} at {val:.2f}"
+
             return {
                 "ok": True,
                 "status": "Now 1 Chiller ON",
                 "suggest": "ON 2 Chiller",
-                "reason": f"Cooling capa more than {cooling_low} at {round(last["cooling_capa"], 2)}"
+                "reason": reason
             }
         
         else:
@@ -537,6 +552,7 @@ def suggestion():
             if P2CH1_on == True: #chiller1 on and %Load over
                 which_one_on = power_P2CH1
                 if P2CH1_over == True: 
+
                     return {
                         "ok": True,
                         "status": "Now P2CH1 ON",
