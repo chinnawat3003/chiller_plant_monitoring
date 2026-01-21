@@ -13,10 +13,6 @@ ModuleRegistry.registerModules([AllCommunityModule]);
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000";
 const HEALTH_URL = `${API_BASE}/health`;
 
-// Sticky สำหรับ "Online (มีข้อมูล/ต่ออยู่)" เท่านั้น
-const ONLINE_STICKY_TTL_MS = 30_000;
-const RUN_STICKY_TTL_MS = 10_000;
-
 // เงื่อนไข "เครื่องทำงาน" (Power kW > threshold)
 const RUN_THRESHOLD_KW = 10;
 
@@ -29,29 +25,32 @@ const CHARTS = {
   chiller_pw: {
     label: "Chiller Power (kW)",
     endpoint: "/api/chiller_pw_history",
-    limitEndpoint: "/api/limit_chiller_power_input", //  ของจริงที่คุณใช้
-
+    limitEndpoint: "/api/limit_chiller_power_input",
+    snapshotGroup: "chiller_power",
   },
   pump_pw: {
     label: "Pump Power (kW)",
     endpoint: "/api/pump_pw_history",
-    limitEndpoint: undefined
-    // ไม่มี limitEndpoint = จะไม่ดึง limit
+    limitEndpoint: undefined,
+    snapshotGroup: "pump_power",
   },
   pump_flow: {
     label: "Pump Flow",
     endpoint: "/api/pump_flow_history",
-    limitEndpoint: undefined
+    limitEndpoint: undefined,
+    snapshotGroup: "flow",
   },
   chiller_temp: {
     label: "Chiller Temp",
     endpoint: "/api/chiller_temp_history",
-    limitEndpoint: undefined
+    limitEndpoint: undefined,
+    snapshotGroup: "chiller_temp",
   },
   thermoform_power: {
     label: "Thermoform Power (kW)",
     endpoint: "/api/thermoform_power_history",
-    limitEndpoint: undefined
+    limitEndpoint: undefined,
+    snapshotGroup: "thermoform_power",
   },
 } as const;
 
@@ -59,10 +58,18 @@ type ChartKey = keyof typeof CHARTS;
 type ApiStatus = "online" | "offline";
 type TwoStatus = "online" | "offline";
 
+type Item = {
+  id: string;
+  label: string;
+  unit?: string;
+  value: number | null;
+  online: boolean;
+};
 type OneShotOk = {
   ok: true;
   ts: string;
-  param: Record<string, { online: boolean; data: number }>;
+  items: Item[];
+  total?: number;
 };
 
 type SuggestionRes = {
@@ -81,7 +88,7 @@ type Limits = { low?: number; high?: number };
 type LimitsRes = { ok: true; limits: { low: number; high: number } };
 
 /** =========================
- * SPEED CACHE (ทำให้ reload/refresh เร็วขึ้น)
+ * SPEED CACHE
  * ========================= */
 const HEALTH_TTL_MS = 5_000;
 const CACHE_TTL_CHART_MS = 60_000; // cache chart 60s
@@ -128,11 +135,17 @@ function monthRangeISO() {
   return { fromIso: from.toISOString(), toIso: now.toISOString() };
 }
 
-async function fetchJson<T>(url: string, timeoutMs = 2500): Promise<T> {
+async function fetchJson<T>(url: string, plantId: string, timeoutMs = 2500): Promise<T> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { signal: ctrl.signal, cache: "no-store" });
+    const res = await fetch(url, {
+      signal: ctrl.signal,
+      cache: "no-store",
+      headers: {
+        "X-Plant-ID": plantId,
+      },
+    });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return (await res.json()) as T;
   } finally {
@@ -141,6 +154,16 @@ async function fetchJson<T>(url: string, timeoutMs = 2500): Promise<T> {
 }
 
 const sanitizeKey = (k: string) => k.replace(/[^a-zA-Z0-9_]/g, "_");
+
+function runStatus(item: Item | undefined, threshold = RUN_THRESHOLD_KW): TwoStatus {
+  if (!item) return "offline";
+  const v = Number(item.value ?? 0);
+  return item.online && Number.isFinite(v) && v > threshold ? "online" : "offline";
+}
+function onlineStatus(item: Item | undefined): TwoStatus {
+  if (!item) return "offline";
+  return item.online ? "online" : "offline";
+}
 
 /** =========================
  * UI COMPONENTS
@@ -161,8 +184,6 @@ const SectionHeader = ({ title }: { title: string }) => (
     {title}
   </div>
 );
-
-const ArrowRight = () => <div style={{ color: "#555", fontSize: 20 }}>➔</div>;
 
 const inputStyle: React.CSSProperties = {
   background: "#222",
@@ -234,10 +255,22 @@ const MachineBox = ({
  * MAIN PAGE
  * ========================= */
 export default function DashboardPage() {
+  // ถ้าคุณมีหลาย plant จริง ให้เติม list ตรงนี้ก่อน (หรือทำเป็น dropdown จาก config ภายหลัง)
+  const PLANTS = useMemo(() => ["P2", "P1"], []);
+  const [plantId, setPlantId] = useState<string>(PLANTS[0] ?? "P2");
+
   const [apiStatus, setApiStatus] = useState<ApiStatus>("offline");
   const [apiErrMsg, setApiErrMsg] = useState("FastAPI not connected");
 
-  const [liveData, setLiveData] = useState<Record<string, { online: boolean; data: number }>>({});
+  // snapshots per group (backend คุมจำนวน+ลำดับให้)
+  const [snapshots, setSnapshots] = useState<Record<string, OneShotOk | null>>({
+    chiller_power: null,
+    pump_power: null,
+    tank_temp: null,
+    flow: null,
+    chiller_temp: null,
+    thermoform_power: null,
+  });
 
   // limit แยกตามกราฟ
   const [chartLimitsMap, setChartLimitsMap] = useState<Record<string, Limits>>({});
@@ -261,35 +294,18 @@ export default function DashboardPage() {
   const liveInFlight = useRef(false);
   const chartInFlight = useRef(false);
 
-  // sticky status
-  const lastSeenRef = useRef<Record<string, number>>({});
-  const lastRunSeenRef = useRef<Record<string, number>>({});
-
   // ✅ health cache ลด request health
   const healthCacheRef = useRef<{ ts: number; ok: boolean }>({ ts: 0, ok: false });
 
-  /** =========================
-   * TAGS
-   * ========================= */
-  const TAGS = {
-    CH1: "Winenergy.P2CH01.kW",
-    CH2: "Winenergy.P2CH02.kW",
-    P9: "Winenergy.P2CHP09.kW",
-    P10: "Winenergy.P2CHP10.kW",
-    P11: "Winenergy.P2CHP11.kW",
-    TF4: "Modbus_TF4.18CT1.Main_Thermoform_kW_Cal",
-    TF5: "Modbus_TF5.18CT1.Main_Thermoform_kW_Cal",
-    TF7: "Modbus_TF7.18CT1.Main_Thermoform_kW_Cal",
-
-    TEMP_RETURN: "Chiller.PLANT_Node2.CLG2_TEMP_CHWR",
-    TEMP_SUPPLY: "Chiller.PLANT_Node2.CLG2_TEMP_CHWS",
-    
-    Flow: "Winenergy.P2CH01.Flow_Counter"
-  };
-
-  // tag ที่ถือว่า "running" = value > threshold
-  const RUN_TAGS = useMemo(
-    () => new Set<string>([TAGS.CH1, TAGS.CH2, TAGS.P9, TAGS.P10, TAGS.P11, TAGS.TF4, TAGS.TF5, TAGS.TF7]),
+  const ONE_SHOT_GROUPS = useMemo(
+    () => [
+      { key: "chiller_power", endpoint: "/api/chill_pw", kind: "power" as const },
+      { key: "pump_power", endpoint: "/api/pump_pw", kind: "power" as const },
+      { key: "tank_temp", endpoint: "/api/chiller_tank_temp", kind: "online" as const },
+      { key: "flow", endpoint: "/api/pump_flow", kind: "online" as const },
+      { key: "chiller_temp", endpoint: "/api/chiller_temp", kind: "online" as const },
+      { key: "thermoform_power", endpoint: "/api/thermoform_power", kind: "power" as const },
+    ],
     []
   );
 
@@ -300,44 +316,10 @@ export default function DashboardPage() {
     return `${API_BASE}${CHARTS[chartKey].endpoint}?start=${encodeURIComponent(startStr)}&every=10m`;
   }, [chartKey, chartRange]);
 
-  const chartOptions = useMemo<AgChartOptions>(
-    () => ({
-      theme: "ag-default-dark" as any,
-      background: { fill: "transparent" },
-      data: chartData as any,
-      series: chartSeries as any,
-      axes: [
-        {
-          type: "time",
-          position: "bottom",
-          label: {
-            rotation: -25,         //  กันตัวหนังสือชนกัน
-            formatter: (p: any) => {
-              const d = new Date(p.value);
-              //  ถ้า range สั้น แสดงแค่เวลา
-              if (chartRange === "1h" || chartRange === "6h") {
-                return new Intl.DateTimeFormat("en-GB", {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                }).format(d);
-              }
-              //  24h ขึ้นไป แสดงวัน + เวลา
-              return new Intl.DateTimeFormat("en-GB", {
-                day: "2-digit",
-                month: "2-digit",
-                hour: "2-digit",
-                minute: "2-digit",
-              }).format(d);
-            },
-          },
-        } as any,
-        { type: "number", position: "left" } as any,
-      ],
-      legend: { position: "bottom" } as any,
-    }),
-    [chartData, chartSeries, chartRange]
-  );
-      
+  const banner =
+    apiStatus === "online"
+      ? { text: "ONLINE", sub: "FastAPI connected", color: "#22c55e" }
+      : { text: "OFFLINE", sub: apiErrMsg, color: "#ef4444" };
 
   /** =========================
    * HEALTH (cached)
@@ -349,10 +331,9 @@ export default function DashboardPage() {
     }
 
     try {
-      const res = await fetchJson<{ ok: boolean }>(HEALTH_URL, 2000);
+      const res = await fetchJson<{ ok: boolean }>(HEALTH_URL, plantId, 2000);
       const ok = !!res?.ok;
       healthCacheRef.current = { ts: now, ok };
-
       if (!ok) throw new Error("health not ok");
       return true;
     } catch (e: any) {
@@ -360,66 +341,31 @@ export default function DashboardPage() {
       setApiErrMsg(e?.name === "AbortError" ? "FastAPI timeout" : "FastAPI not connected");
       return false;
     }
-  }, []);
+  }, [plantId]);
 
   /** =========================
-   * STATUS LOGIC
+   * SNAPSHOT HELPERS
    * ========================= */
-  const getOnlineSt = (tag: string): TwoStatus => {
-    if (apiStatus === "offline") return "offline";
-
-    const item = liveData?.[tag];
-    if (!item) {
-      const last = lastSeenRef.current[tag];
-      if (last && Date.now() - last < ONLINE_STICKY_TTL_MS) return "online";
-      return "offline";
+  const itemsMap = useMemo(() => {
+    const out: Record<string, Record<string, Item>> = {};
+    for (const g of Object.keys(snapshots)) {
+      const items = snapshots[g]?.items ?? [];
+      out[g] = {};
+      for (const it of items) out[g][it.id] = it;
     }
+    return out;
+  }, [snapshots]);
 
-    if (item.online || Number.isFinite(item.data)) {
-      lastSeenRef.current[tag] = Date.now();
-      return "online";
-    }
-
-    const last = lastSeenRef.current[tag];
-    if (last && Date.now() - last < ONLINE_STICKY_TTL_MS) return "online";
-
-    return "offline";
-  };
-
-  const getRunSt = (tag: string, min = RUN_THRESHOLD_KW): TwoStatus => {
-    if (apiStatus === "offline") return "offline";
-
-    const v = Number(liveData?.[tag]?.data);
-
-    if (Number.isFinite(v) && v > min) {
-      lastRunSeenRef.current[tag] = Date.now();
-      return "online";
-    }
-
-    const last = lastRunSeenRef.current[tag];
-    if (last && Date.now() - last < RUN_STICKY_TTL_MS) return "online";
-
-    return "offline";
-  };
-
-  const getVal = (tag: string) => (tag in liveData ? liveData[tag]?.data ?? null : null);
-
-  /** =========================
-   * FETCH: LIVE DATA (NO LIMIT HERE!)
-   * ========================= */
-  const ONE_SHOT_GROUPS = useMemo(
-    () => [
-      { endpoint: "/api/chill_pw" },
-      { endpoint: "/api/pump_pw" },
-      { endpoint: "/api/pump_flow" },
-      { endpoint: "/api/chiller_temp" },
-      { endpoint: "/api/thermoform_power" },
-      { endpoint: "/api/chiller_tank_temp" },
-      { endpoint: "/api/pump_flow" }
-    ],
-    []
+  const groupItems = useCallback(
+    (groupKey: string) => {
+      return snapshots[groupKey]?.items ?? [];
+    },
+    [snapshots]
   );
 
+  /** =========================
+   * FETCH: SNAPSHOTS
+   * ========================= */
   const fetchOneShot = useCallback(async () => {
     if (liveInFlight.current) return;
     liveInFlight.current = true;
@@ -428,33 +374,44 @@ export default function DashboardPage() {
       const ok = await pingHealth();
       if (!ok) {
         setApiStatus("offline");
-        setLiveData({});
+        setSnapshots((prev) => {
+          const cleared: any = { ...prev };
+          for (const k of Object.keys(cleared)) cleared[k] = null;
+          return cleared;
+        });
         return;
       }
       setApiStatus("online");
 
       const settled = await Promise.allSettled(
-        ONE_SHOT_GROUPS.map((g) => fetchJson<OneShotOk>(`${API_BASE}${g.endpoint}`, 15000))
+        ONE_SHOT_GROUPS.map(async (g) => {
+          const res = await fetchJson<OneShotOk>(`${API_BASE}${g.endpoint}`, plantId, 15000);
+          return { key: g.key, res };
+        })
       );
 
-      const combined: Record<string, { online: boolean; data: number }> = {};
+      setSnapshots((prev) => {
+        const next: Record<string, OneShotOk | null> = { ...prev };
 
-      for (const s of settled) {
-        if (s.status === "fulfilled" && s.value?.ok && s.value?.param) {
-          Object.assign(combined, s.value.param);
+        for (const s of settled) {
+          if (s.status === "fulfilled" && s.value?.res?.ok) {
+            next[s.value.key] = s.value.res;
+          }
         }
-      }
+        return next;
+      });
 
-      if (Object.keys(combined).length > 0) {
-        setLiveData((prev) => ({ ...prev, ...combined }));
-      }
     } catch {
       setApiStatus("offline");
-      setLiveData({});
+      setSnapshots((prev) => {
+        const cleared: any = { ...prev };
+        for (const k of Object.keys(cleared)) cleared[k] = null;
+        return cleared;
+      });
     } finally {
       liveInFlight.current = false;
     }
-  }, [ONE_SHOT_GROUPS, pingHealth]);
+  }, [ONE_SHOT_GROUPS, pingHealth, plantId]);
 
   /** =========================
    * FETCH: LIMIT PER CHART (cached)
@@ -483,22 +440,17 @@ export default function DashboardPage() {
         if (!ok) throw new Error("FastAPI offline");
         setApiStatus("online");
 
-        const res = await fetchJson<LimitsRes>(`${API_BASE}${limitEp}`, 4000);
-
-        const limits: Limits = {
-          low: res?.limits?.low,
-          high: res?.limits?.high,
-        };
+        const res = await fetchJson<LimitsRes>(`${API_BASE}${limitEp}`, plantId, 4000);
+        const limits: Limits = { low: res?.limits?.low, high: res?.limits?.high };
 
         setChartLimitsMap((prev) => ({ ...prev, [ck]: limits }));
         writeCache(cacheKeyLimit(ck), limits);
-
         return limits;
       } catch {
         return {};
       }
     },
-    [chartLimitsMap, pingHealth]
+    [chartLimitsMap, pingHealth, plantId]
   );
 
   /** =========================
@@ -511,7 +463,7 @@ export default function DashboardPage() {
       const ok = await pingHealth();
       if (!ok) throw new Error("FastAPI offline");
       setApiStatus("online");
-      const data = await fetchJson<SuggestionRes>(`${API_BASE}/api/recommend`, 3000);
+      const data = await fetchJson<SuggestionRes>(`${API_BASE}/api/recommend`, plantId, 8000);
       setSuggestion(data);
     } catch (e: any) {
       setSuggestion(null);
@@ -519,7 +471,7 @@ export default function DashboardPage() {
     } finally {
       setSuggestionLoading(false);
     }
-  }, [pingHealth]);
+  }, [pingHealth, plantId]);
 
   /** =========================
    * FETCH: COST
@@ -537,7 +489,7 @@ export default function DashboardPage() {
         toIso
       )}&every=1h`;
 
-      const data = await fetchJson<CostRes>(url, 4000);
+      const data = await fetchJson<CostRes>(url, plantId, 6000);
       setCost(data);
     } catch (e: any) {
       setCost(null);
@@ -545,10 +497,10 @@ export default function DashboardPage() {
     } finally {
       setCostLoading(false);
     }
-  }, [pingHealth]);
+  }, [pingHealth, plantId]);
 
   /** =========================
-   * FETCH: CHART (fast + per-chart limit)
+   * FETCH: CHART (series + per-chart limit)
    * ========================= */
   const fetchChart = useCallback(async () => {
     if (chartInFlight.current) return;
@@ -557,10 +509,17 @@ export default function DashboardPage() {
     setChartLoading(true);
     setChartError(null);
 
-    //  1) โชว์ cache ขึ้นก่อนให้เร็ว
-    const cachedChart = readCache<{ data: any[]; series: any[] }>(cacheKeyChart(chartKey, chartUrl), CACHE_TTL_CHART_MS);
+    // 1) cache ก่อน
+    const cachedChart = readCache<{ data: any[]; series: any[] }>(
+      cacheKeyChart(chartKey, chartUrl),
+      CACHE_TTL_CHART_MS
+    );
     if (cachedChart?.data?.length && cachedChart?.series?.length) {
-      setChartData(cachedChart.data);
+      const rehydrated = cachedChart.data.map((r) => ({
+        ...r,
+        ts: new Date(r.ts), // << สำคัญ
+      }));
+      setChartData(rehydrated);
       setChartSeries(cachedChart.series);
     }
 
@@ -571,26 +530,31 @@ export default function DashboardPage() {
 
       const hasLimit = !!CHARTS[chartKey].limitEndpoint;
 
-      // ✅ 2) ดึง history + limit แบบ parallel (limit เฉพาะกราฟที่มี)
       const [json, limits] = await Promise.all([
-        fetchJson<any>(chartUrl, 6000),
+        fetchJson<any>(chartUrl, plantId, 8000),
         hasLimit ? fetchLimitsForChart(chartKey) : Promise.resolve<Limits>({}),
       ]);
 
-      const history = Array.isArray(json?.history) ? json.history : [];
-      if (!json?.ok || history.length === 0) {
+      const seriesArr = Array.isArray(json?.series) ? json.series : [];
+      if (!json?.ok || seriesArr.length === 0) {
         setChartData([]);
         setChartSeries([]);
         setChartError("No data");
         return;
       }
 
-      const data = history
+      const data = seriesArr
         .map((d: any) => ({ ...d, ts: new Date(d.ts) }))
         .sort((a: any, b: any) => +a.ts - +b.ts);
 
-      const rawKeys = Object.keys(data[0] || {}).filter((k) => k !== "ts");
-      const keys = rawKeys.filter((k) => data.some((r: any) => r[k] !== null && r[k] !== undefined));
+      // Keys ที่ "ต้องการ" = จาก snapshot group (ถ้ามี) เพื่อให้ล็อคตาม backend
+      const snapGroupKey = CHARTS[chartKey].snapshotGroup;
+      const preferredKeys = (snapshots[snapGroupKey]?.items ?? []).map((it) => it.id);
+      const rawKeysFromData = Object.keys(data[0] || {}).filter((k) => k !== "ts");
+
+      const keys = (preferredKeys.length ? preferredKeys : rawKeysFromData).filter(
+        (k) => k !== "ts" && (preferredKeys.length ? true : data.some((r: any) => r[k] !== null && r[k] !== undefined))
+      );
 
       if (keys.length === 0) {
         setChartData([]);
@@ -602,26 +566,31 @@ export default function DashboardPage() {
       const keyMap: Record<string, string> = {};
       keys.forEach((k) => (keyMap[k] = sanitizeKey(k)));
 
-      //  สำคัญ: ถ้าไม่ใช่กราฟที่มี limit ให้เป็น NaN
       const low = hasLimit ? Number(limits.low) : NaN;
       const high = hasLimit ? Number(limits.high) : NaN;
 
       const safeData = data.map((row: any) => {
         const out: any = { ts: row.ts };
-        keys.forEach((k) => (out[keyMap[k]] = row[k]));
+        keys.forEach((k) => {
+          out[keyMap[k]] = row[k] ?? null; // กัน missing key
+        });
 
-        //  limit ของกราฟตัวเองเท่านั้น
         if (hasLimit && Number.isFinite(low)) out.limit_low = low;
         if (hasLimit && Number.isFinite(high)) out.limit_high = high;
-
         return out;
       });
+
+      // map ชื่อใน legend: ใช้ label จาก snapshot ถ้ามี
+      const idToLabel = (snapshots[snapGroupKey]?.items ?? []).reduce<Record<string, string>>((acc, it) => {
+        acc[it.id] = it.label;
+        return acc;
+      }, {});
 
       const baseSeries = keys.map((k) => ({
         type: "line",
         xKey: "ts",
         yKey: keyMap[k],
-        yName: k,
+        yName: idToLabel[k] ? `${idToLabel[k]} (${k})` : k,
         strokeWidth: 2,
         marker: { enabled: false },
       }));
@@ -633,7 +602,6 @@ export default function DashboardPage() {
           xKey: "ts",
           yKey: "limit_low",
           yName: "Limit Low",
-          stroke: "#ff5252",   
           strokeWidth: 2,
           marker: { enabled: false },
           lineDash: [6, 6],
@@ -645,7 +613,6 @@ export default function DashboardPage() {
           xKey: "ts",
           yKey: "limit_high",
           yName: "Limit High",
-          stroke: "#fa6060", 
           strokeWidth: 2,
           marker: { enabled: false },
           lineDash: [6, 6],
@@ -657,7 +624,6 @@ export default function DashboardPage() {
       setChartData(safeData);
       setChartSeries(finalSeries);
 
-      // ✅ 3) เขียน cache ให้ reload ครั้งต่อไปเร็วมาก
       writeCache(cacheKeyChart(chartKey, chartUrl), { data: safeData, series: finalSeries });
     } catch (e: any) {
       setChartData([]);
@@ -668,36 +634,72 @@ export default function DashboardPage() {
       setChartLoading(false);
       chartInFlight.current = false;
     }
-  }, [chartKey, chartUrl, fetchLimitsForChart, pingHealth]);
+  }, [chartKey, chartUrl, fetchLimitsForChart, pingHealth, plantId, snapshots]);
+
+  const chartOptions = useMemo<AgChartOptions>(
+    () => ({
+      theme: "ag-default-dark" as any,
+      background: { fill: "transparent" },
+      data: chartData as any,
+      series: chartSeries as any,
+      axes: [
+        {
+          type: "time",
+          position: "bottom",
+          label: {
+            rotation: -25,
+            formatter: (p: any) => {
+              const d = new Date(p.value);
+              return new Intl.DateTimeFormat("th-TH", {
+                timeZone: "Asia/Bangkok",
+                hour: "2-digit",
+                minute: "2-digit",
+                day: "2-digit",
+                month: "2-digit",
+              }).format(d);
+            },
+          },
+        } as any,
+        { type: "number", position: "left" } as any,
+      ],
+      legend: { position: "bottom" } as any,
+    }),
+    [chartData, chartSeries, chartRange]
+  );
 
   /** =========================
    * EFFECTS
    * ========================= */
+
   useEffect(() => {
+    fetchChart();
+  }, [chartUrl]);
+
+ useEffect(() => {
+    // reset health cache when plant changes
+    healthCacheRef.current = { ts: 0, ok: false };
+
     fetchOneShot();
     fetchSuggestion();
     fetchCost();
     fetchChart();
 
-    const interval = setInterval(() => {
-      fetchOneShot();
-    }, 10_000);
-
+    const interval = setInterval(fetchOneShot, 10_000);
     return () => clearInterval(interval);
-  }, [fetchOneShot, fetchSuggestion, fetchCost, fetchChart]);
 
-  useEffect(() => {
-    fetchChart();
-  }, [chartUrl, fetchChart]);
-
-  const banner =
-    apiStatus === "online"
-      ? { text: "ONLINE", sub: "FastAPI connected", color: "#22c55e" }
-      : { text: "OFFLINE", sub: apiErrMsg, color: "#ef4444" };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [plantId]);
 
   /** =========================
    * RENDER
    * ========================= */
+  const chillerPower = groupItems("chiller_power");
+  const pumpPower = groupItems("pump_power");
+  const tankTemp = groupItems("tank_temp");
+  const flow = groupItems("flow");
+
+  const thermoform = groupItems("thermoform_power");
+
   return (
     <div
       style={{
@@ -734,26 +736,58 @@ export default function DashboardPage() {
             Plant Status
           </h2>
 
-          <div style={{ textAlign: "center", marginBottom: 30 }}>
+          {/* Plant selector */}
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+            <div style={{ fontSize: 12, color: "#888" }}>Plant</div>
+            <select value={plantId} onChange={(e) => setPlantId(e.target.value)} style={inputStyle}>
+              {PLANTS.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div style={{ textAlign: "center", marginBottom: 22 }}>
             <div style={{ color: banner.color, fontSize: 24, fontWeight: "bold" }}>{banner.text}</div>
             <div style={{ fontSize: 12, color: "#666" }}>{banner.sub}</div>
           </div>
 
           <SectionHeader title="Chiller Power" />
-          <StatusDot label="P2CH01" value={getVal(TAGS.CH1)} status={getRunSt(TAGS.CH1)} unit="kW" />
-          <StatusDot label="P2CH02" value={getVal(TAGS.CH2)} status={getRunSt(TAGS.CH2)} unit="kW" />
+          {chillerPower.length ? (
+            chillerPower.map((it) => (
+              <StatusDot key={it.id} label={it.label} value={it.value} unit={it.unit ?? "kW"} status={runStatus(it)} />
+            ))
+          ) : (
+            <div style={{ fontSize: 12, color: "#666" }}>No data</div>
+          )}
 
           <SectionHeader title="Pump Power" />
-          <StatusDot label="P2CHP09" value={getVal(TAGS.P9)} status={getRunSt(TAGS.P9)} unit="kW" />
-          <StatusDot label="P2CHP10" value={getVal(TAGS.P10)} status={getRunSt(TAGS.P10)} unit="kW" />
-          <StatusDot label="P2CHP11" value={getVal(TAGS.P11)} status={getRunSt(TAGS.P11)} unit="kW" />
+          {pumpPower.length ? (
+            pumpPower.map((it) => (
+              <StatusDot key={it.id} label={it.label} value={it.value} unit={it.unit ?? "kW"} status={runStatus(it)} />
+            ))
+          ) : (
+            <div style={{ fontSize: 12, color: "#666" }}>No data</div>
+          )}
 
           <SectionHeader title="Temperature" />
-          <StatusDot label="Return" value={getVal(TAGS.TEMP_RETURN)} status={getOnlineSt(TAGS.TEMP_RETURN)} unit="°C" />
-          <StatusDot label="Supply" value={getVal(TAGS.TEMP_SUPPLY)} status={getOnlineSt(TAGS.TEMP_SUPPLY)} unit="°C" />
+          {tankTemp.length ? (
+            tankTemp.map((it) => (
+              <StatusDot key={it.id} label={it.label} value={it.value} unit={it.unit ?? "°C"} status={onlineStatus(it)} />
+            ))
+          ) : (
+            <div style={{ fontSize: 12, color: "#666" }}>No data</div>
+          )}
 
           <SectionHeader title="Flow" />
-          <StatusDot label="Return" value={getVal(TAGS.Flow)} status={getOnlineSt(TAGS.Flow)} unit="m³/h" />
+          {flow.length ? (
+            flow.map((it) => (
+              <StatusDot key={it.id} label={it.label} value={it.value} unit={it.unit ?? "m³/h"} status={onlineStatus(it)} />
+            ))
+          ) : (
+            <div style={{ fontSize: 12, color: "#666" }}>No data</div>
+          )}
         </div>
 
         {/* CENTER PANEL */}
@@ -788,91 +822,32 @@ export default function DashboardPage() {
               preserveAspectRatio="none"
             >
               <defs>
-                <marker
-                  id="arrow"
-                  markerUnits="strokeWidth"
-                  markerWidth="8"
-                  markerHeight="8"
-                  refX="7"
-                  refY="4"
-                  orient="auto"
-                >
+                <marker id="arrow" markerUnits="strokeWidth" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
                   <path d="M0,0 L8,4 L0,8 Z" fill="rgba(255,255,255,0.95)" />
                 </marker>
-
-                <filter id="glow">
-                  <feGaussianBlur stdDeviation="1.6" result="b" />
-                  <feMerge>
-                    <feMergeNode in="b" />
-                    <feMergeNode in="SourceGraphic" />
-                  </feMerge>
-                </filter>
               </defs>
 
-              {/* Main header line */}
-              <path
-                d="M60 160 H390"
-                stroke="rgba(255,255,255,0.85)"
-                strokeWidth="3"
-                fill="none"
-                markerEnd="url(#arrow)"
-                filter="url(#glow)"
-              />
-
-              <path d="M320 195 V150 H260" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none"  />
-              <path d="M320 195 V228 H260" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none"  />
-
-              <path d="M320 190 H460" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none"  />
-
-              {/* Node 1 */}
-              <circle cx="320" cy="190" r="7" fill="#000000" stroke="rgba(255,255,255,0.85)" strokeWidth="2" />
-
-              {/* TF branches */}
-              <path d="M460 190 V128  H550" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" markerEnd="url(#arrow)" />
-              <path d="M460 190       H550" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" markerEnd="url(#arrow)" />
-              <path d="M460 190 V248 H550" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" markerEnd="url(#arrow)" />
-              
-              <circle cx="460" cy="190" r="7" fill="#000000" stroke="rgba(255,255,255,0.85)" strokeWidth="2" />
-              
-              <path d="M760 190 V128 H640" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none"  />
-              <path d="M760 190       H640" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" />
-              <path d="M760 190 V248 H640" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none"  />
-
-
-              {/* Back to main line */}
+              {/* (คง SVG เดิมไว้) */}
+              <path d="M320 190 H560" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" markerEnd="url(#arrow)" />
+              <path d="M560 190 H760" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" markerEnd="url(#arrow)" />
               <path d="M760 190 H870" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" />
-
-              {/* Node 2 */}
               <circle cx="760" cy="190" r="7" fill="#0a0a0a" stroke="rgba(255,255,255,0.85)" strokeWidth="2" />
-
-                {/**ทิศทางซ้ายขวา ซ้ายขวา ทิศทางบนล่าง สูง ทิศทางซ้ายขวา*/}
-              <path d="M870 190 V115 H935" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" markerEnd="url(#arrow)"/>
-              <path d="M870 190       H935" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" markerEnd="url(#arrow)"/>
-              <path d="M870 190 V263 H935" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" markerEnd="url(#arrow)"/>
-
+              <path d="M870 190 V115 H935" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" markerEnd="url(#arrow)" />
+              <path d="M870 190       H935" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" markerEnd="url(#arrow)" />
+              <path d="M870 190 V263 H935" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" markerEnd="url(#arrow)" />
               <circle cx="870" cy="190" r="7" fill="#0a0a0a" stroke="rgba(255,255,255,0.85)" strokeWidth="2" />
-
               <path d="M1100 190 V115 H1030" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" />
               <path d="M1100 190       H1030" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" />
               <path d="M1100 190 V263 H1030" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" />
-
-              <path d="M1150 190 H1100" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none"  />
-
+              <path d="M1150 190 H1100" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" />
               <circle cx="1100" cy="190" r="7" fill="#0a0a0a" stroke="rgba(255,255,255,0.85)" strokeWidth="2" />
-
               <path d="M1150 190 V70" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" />
-
-              <path d="M60 70 H1150" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none"  />
-
+              <path d="M60 70 H1150" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" />
               <path d="M60 190 V70" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" />
-
-              <path d="M60 190 H100" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none"  />
-
+              <path d="M60 190 H100" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" />
               <path d="M100 190 V150  H165" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" markerEnd="url(#arrow)" />
               <path d="M100 190 V227  H165" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" markerEnd="url(#arrow)" />
-
               <circle cx="100" cy="190" r="7" fill="#0a0a0a" stroke="rgba(255,255,255,0.85)" strokeWidth="2" />
-
             </svg>
 
             {/* === CONTENT (FOREGROUND) === */}
@@ -889,26 +864,29 @@ export default function DashboardPage() {
             >
               {/* CH */}
               <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-                <MachineBox label="CH1" subLabel="P2CH01" status={getRunSt(TAGS.CH1)} />
-                <MachineBox label="CH2" subLabel="P2CH02" status={getRunSt(TAGS.CH2)} />
+                {(chillerPower.length ? chillerPower.slice(0, 2) : []).map((it) => (
+                  <MachineBox key={it.id} label={it.id} subLabel={it.label} status={runStatus(it)} />
+                ))}
+                {!chillerPower.length && <div style={{ fontSize: 12, color: "#666" }}>No chiller data</div>}
               </div>
 
               {/* TF */}
               <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                <MachineBox label="TF4" status={getRunSt(TAGS.TF4)} />
-                <MachineBox label="TF5" status={getRunSt(TAGS.TF5)} />
-                <MachineBox label="TF7" status={getRunSt(TAGS.TF7)} />
+                {(thermoform.length ? thermoform.slice(0, 3) : []).map((it) => (
+                  <MachineBox key={it.id} label={it.id} subLabel={it.label} status={runStatus(it)} />
+                ))}
+                {!thermoform.length && <div style={{ fontSize: 12, color: "#666" }}>No TF data</div>}
               </div>
 
               {/* PUMP */}
               <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                <MachineBox label="P9" subLabel="P2CHP09" status={getRunSt(TAGS.P9)} />
-                <MachineBox label="P10" subLabel="P2CHP10" status={getRunSt(TAGS.P10)} />
-                <MachineBox label="P11" subLabel="P2CHP11" status={getRunSt(TAGS.P11)} />
+                {(pumpPower.length ? pumpPower.slice(0, 3) : []).map((it) => (
+                  <MachineBox key={it.id} label={it.id} subLabel={it.label} status={runStatus(it)} />
+                ))}
+                {!pumpPower.length && <div style={{ fontSize: 12, color: "#666" }}>No pump data</div>}
               </div>
             </div>
 
-            {/* เส้นโค้งล่างเดิม (จะเอาออกก็ได้) */}
             <div
               style={{
                 position: "absolute",

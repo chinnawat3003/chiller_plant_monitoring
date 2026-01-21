@@ -99,6 +99,7 @@ def pump_flow(plant_id):
         |> group(columns:["Source_tag"])
         |> sort(columns: ["_time"])
         |> derivative(unit: 1h, nonNegative: true)
+        |> last()
         '''
     
     return flux_to_df(flux)
@@ -197,7 +198,7 @@ def chiller_tank_temp_history(plant_id, start="-24h", stop="now()", every="15m")
 #Thermoform
 def temp_tf_tag(plant_id):
     plant = config.get_plant(plant_id)
-    tag_list = plant["tags"]["TF"]
+    tag_list = plant["tags"]["thermoform_power"]
     return tag_list
 
 def thermoform_power(plant_id):
