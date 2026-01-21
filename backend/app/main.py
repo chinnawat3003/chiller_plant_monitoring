@@ -5,6 +5,7 @@ from . import control_service
 import re
 from typing import Optional
 
+defualt_plant = "P1"
 
 app = FastAPI(title="Chiller Monitoring")
 
@@ -32,8 +33,8 @@ def health():
 
 
 @app.get("/api/chill_pw")
-def api_chiller_pw():
-    res = control_service.df_chiller_power()
+def api_chiller_pw(plant_id = defualt_plant):
+    res = control_service.df_chiller_power(plant_id)
     print(res)
     if not res:
         raise HTTPException(404, "no data")
@@ -41,27 +42,27 @@ def api_chiller_pw():
 
 
 @app.get("/api/pump_pw")
-def api_pump_pw():
-    res = control_service.df_pump_power()
+def api_pump_pw(plant_id = defualt_plant):
+    res = control_service.df_pump_power(plant_id)
     if not res:
         raise HTTPException(404, "no data")
     return {"ok": True, **res}
 
 @app.get("/api/pump_flow")
-def api_pump_flow():
-    res = control_service.df_pump_flow()
+def api_pump_flow(plant_id = defualt_plant):
+    res = control_service.df_pump_flow(plant_id)
     if not res:
         raise HTTPException(404, "no data")
     return {"ok": True, **res}
 
 @app.get("/api/chiller_temp")
-def df_chiller_temp():
-    res = control_service.df_chiller_temp()
+def df_chiller_temp(plant_id = defualt_plant):
+    res = control_service.df_chiller_temp(plant_id)
     return {"ok": True, **res}
 
 @app.get("/api/thermoform_power")
-def api_thermoform_power():
-    res = control_service.df_thermoform_power()
+def api_thermoform_power(plant_id = defualt_plant):
+    res = control_service.df_thermoform_power(plant_id)
     
     if not res:
         raise HTTPException(404, "no data")
@@ -69,8 +70,8 @@ def api_thermoform_power():
 
 
 @app.get("/api/chiller_tank_temp")
-def api_chiller_tank_temp():
-    res = control_service.df_chiller_tank_temp()
+def api_chiller_tank_temp(plant_id = defualt_plant):
+    res = control_service.df_chiller_tank_temp(plant_id)
     
     if not res:
         raise HTTPException(404, "no data")
@@ -78,8 +79,8 @@ def api_chiller_tank_temp():
 
 
 @app.get("/api/cop")
-def api_cop():
-    res = control_service.df_cop()
+def api_cop(plant_id = defualt_plant):
+    res = control_service.df_cop(plant_id)
     if not res:
         raise HTTPException(404, "no data")
     return {"ok": True, **res}
@@ -88,68 +89,74 @@ def api_cop():
 
 @app.get("/api/chiller_pw_history")
 def api_chiller_pw_history(
+    plant_id = defualt_plant,
     from_ts: Optional[str] = Query(None, alias="from"),
     to_ts: Optional[str] = Query(None, alias="to"),
     start: str = Query("-24h"),
     every: str = Query("10m"),
 ):
-    s, e = _range_args(from_ts, to_ts, start)
+    s, e = _range_args(plant_id, from_ts, to_ts, start)
     res = control_service.df_chiller_power_history(start=s, stop=e, every=every)
     return {"ok": True, "history": res}
 
 @app.get("/api/pump_pw_history")
 def api_pump_pw_history(
+    plant_id = defualt_plant,
     from_ts: Optional[str] = Query(None, alias="from"),
     to_ts: Optional[str] = Query(None, alias="to"),
     start: str = Query("-24h"),
     every: str = Query("10m"),
 ):
-    s, e = _range_args(from_ts, to_ts, start)
+    s, e = _range_args(plant_id, from_ts, to_ts, start)
     res = control_service.df_pump_power_history(start=s, stop=e, every=every)
     return {"ok": True, "history": res}
 
 @app.get("/api/pump_flow_history")
 def api_pump_flow_history(
+    plant_id = defualt_plant,
     from_ts: Optional[str] = Query(None, alias="from"),
     to_ts: Optional[str] = Query(None, alias="to"),
     start: str = Query("-24h"),
     every: str = Query("10m"),
 ):
-    s, e = _range_args(from_ts, to_ts, start)
+    s, e = _range_args(plant_id, from_ts, to_ts, start)
     res = control_service.df_pump_flow_history(start=s, stop=e, every=every)
     return {"ok": True, "history": res}
 
 
 @app.get("/api/chiller_temp_history")
 def api_chiller_temp_history(
+    plant_id = defualt_plant,
     from_ts: Optional[str] = Query(None, alias="from"),
     to_ts: Optional[str] = Query(None, alias="to"),
     start: str = Query("-24h"),
     every: str = Query("10m"),
 ):
-    s, e = _range_args(from_ts, to_ts, start)
+    s, e = _range_args(plant_id, from_ts, to_ts, start)
     res = control_service.df_chiller_temp_history(start=s, stop=e, every=every)
     return {"ok": True, "history": res}
 
 @app.get("/api/thermoform_power_history")
 def api_thermoform_power_history(
+    plant_id = defualt_plant,
     from_ts: Optional[str] = Query(None, alias="from"),
     to_ts: Optional[str] = Query(None, alias="to"),
     start: str = Query("-24h"),
     every: str = Query("10m"),
 ):
-    s, e = _range_args(from_ts, to_ts, start)
+    s, e = _range_args(plant_id, from_ts, to_ts, start)
     res = control_service.df_thermoform_power_history(start=s, stop=e, every=every)
     return {"ok": True, "history": res}
 
 @app.get("/api/chiller_tank_temp_history")
 def api_chiller_tank_temp_history(
+    plant_id = defualt_plant,
     from_ts: Optional[str] = Query(None, alias="from"),
     to_ts: Optional[str] = Query(None, alias="to"),
     start: str = Query("-24h"),
     every: str = Query("10m"),
 ):
-    s, e = _range_args(from_ts, to_ts, start)
+    s, e = _range_args(plant_id, from_ts, to_ts, start)
     res = control_service.df_chiller_tank_temp_history(start=s, stop=e, every=every)
     return {"ok": True, "history": res}
 

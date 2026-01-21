@@ -1,14 +1,17 @@
 from .influx_client import query_api, BUCKET, flux_to_df
-
+from .. import config
 #Chiller_power
-chiller_power_tag = [
-    "Winenergy.P2CH01.kW",
-    "Winenergy.P2CH02.kW"
-]
+
+def chiller_power_tag(plant_id):
+    plant = config.get_plant(plant_id)
+    tag_list = plant["tags"]["chiller_power"]
+    return tag_list
+
 
 #oneshot
-def chiller_power():
-    tags = '["' + '","'.join(chiller_power_tag) + '"]'
+def chiller_power(plant_id):
+    tag_list = chiller_power_tag(plant_id)
+    tags = '["' + '","'.join(tag_list) + '"]'
     
     flux = f'''
         from(bucket:"{BUCKET}")
@@ -23,8 +26,9 @@ def chiller_power():
     return flux_to_df(flux)
 
 #history
-def chiller_power_history(start="-24h", stop="now()", every="15m"):
-    tag_filter = " or ".join([f'r["Source_tag"] == "{t}"' for t in chiller_power_tag])
+def chiller_power_history(plant_id, start="-24h", stop="now()", every="15m"):
+    tag_list = chiller_power_tag(plant_id)
+    tag_filter = " or ".join([f'r["Source_tag"] == "{t}"' for t in tag_list])
 
     flux = f'''
         from(bucket:"{BUCKET}")
@@ -37,13 +41,15 @@ def chiller_power_history(start="-24h", stop="now()", every="15m"):
 
 
 #Pump_power
-pump_power_tag = [
-    "Winenergy.P2CHP09.kW",
-    "Winenergy.P2CHP10.kW",
-    "Winenergy.P2CHP11.kW"
-]
-def pump_power():
-    tags = '["' + '","'.join(pump_power_tag) + '"]'
+
+def pump_power_tag(plant_id):
+    plant = config.get_plant(plant_id)
+    tag_list = plant["tags"]["pump_power"]
+    return tag_list
+
+def pump_power(plant_id):
+    tag_list = pump_power_tag(plant_id)
+    tags = '["' + '","'.join(tag_list) + '"]'
     
     flux = f'''
         from(bucket:"{BUCKET}")
@@ -58,8 +64,9 @@ def pump_power():
     return flux_to_df(flux)
 
 #history
-def pump_power_history(start="-24h", stop="now()", every="15m"):
-    tag_filter = " or ".join([f'r["Source_tag"] == "{t}"' for t in pump_power_tag])
+def pump_power_history(plant_id, start="-24h", stop="now()", every="15m"):
+    tag_list = pump_power_tag(plant_id)
+    tag_filter = " or ".join([f'r["Source_tag"] == "{t}"' for t in tag_list])
 
     flux = f'''
         from(bucket:"{BUCKET}")
@@ -73,12 +80,15 @@ def pump_power_history(start="-24h", stop="now()", every="15m"):
 
 #Flow
 #need to convert from counter to m3/h first
-flow_tag = [
-    
-    "Winenergy.P2CH01.Flow_Counter"
-]
-def pump_flow():
-    tags = '["' + '","'.join(flow_tag) + '"]'
+
+def flow_tag(plant_id):
+    plant = config.get_plant(plant_id)
+    tag_list = plant["tags"]["flow"]
+    return tag_list
+
+def pump_flow(plant_id):
+    tag_list = flow_tag(plant_id)
+    tags = '["' + '","'.join(tag_list) + '"]'
     
     flux = f'''
         from(bucket:"{BUCKET}")
@@ -92,9 +102,11 @@ def pump_flow():
         '''
     
     return flux_to_df(flux)
+
 #history
-def pump_flow_history(start="-24h", stop="now()", every="15m"):
-    tag_filter = " or ".join([f'r["Source_tag"] == "{t}"' for t in flow_tag])
+def pump_flow_history(plant_id, start="-24h", stop="now()", every="15m"):
+    tag_list = flow_tag(plant_id)
+    tag_filter = " or ".join([f'r["Source_tag"] == "{t}"' for t in tag_list])
 
     flux = f'''
         from(bucket:"{BUCKET}")
@@ -110,16 +122,15 @@ def pump_flow_history(start="-24h", stop="now()", every="15m"):
 
 
 #temp chiller
-temp_tag = [
-    "Chiller.PLANT_Node2.CLG2_CH01_EVAP_ENTERING_WATER_TEMP_1",
-    "Chiller.PLANT_Node2.CLG2_CH01_EVAP_LEAVING_WATER_TEMP_1",
-    "Chiller.PLANT_Node2.CLG2_CH02_EVAP_ENTERING_WATER_TEMP_1",
-    "Chiller.PLANT_Node2.CLG2_CH02_EVAP_LEAVING_WATER_TEMP_1",
-    
 
-]
-def chiller_temp():
-    tags = '["' + '","'.join(temp_tag) + '"]'
+def temp_chiller_tag(plant_id):
+    plant = config.get_plant(plant_id)
+    tag_list = plant["tags"]["chiller_temp"]
+    return tag_list
+
+def chiller_temp(plant_id):
+    tag_list = temp_chiller_tag(plant_id)
+    tags = '["' + '","'.join(tag_list) + '"]'
     
     flux = f'''
         from(bucket:"{BUCKET}")
@@ -133,8 +144,9 @@ def chiller_temp():
     
     return flux_to_df(flux)
 #history
-def chiller_temp_history(start="-24h", stop="now()", every="15m"):
-    tag_filter = " or ".join([f'r["Source_tag"] == "{t}"' for t in temp_tag])
+def chiller_temp_history(plant_id, start="-24h", stop="now()", every="15m"):
+    tag_list = pump_power_tag(plant_id)
+    tag_filter = " or ".join([f'r["Source_tag"] == "{t}"' for t in tag_list])
 
     flux = f'''
         from(bucket:"{BUCKET}")
@@ -147,13 +159,14 @@ def chiller_temp_history(start="-24h", stop="now()", every="15m"):
 
 
 #chiller_tank_temp
-tank_tag = [
-    "Chiller.PLANT_Node2.CLG2_TEMP_CHWR",
-    "Chiller.PLANT_Node2.CLG2_TEMP_CHWS"
-]
-#history
-def chiller_tank_temp():
-    tags = '["' + '","'.join(tank_tag) + '"]'
+def temp_tank_tag(plant_id):
+    plant = config.get_plant(plant_id)
+    tag_list = plant["tags"]["tank_temp"]
+    return tag_list
+
+def chiller_tank_temp(plant_id):
+    tag_list = temp_tank_tag(plant_id)
+    tags = '["' + '","'.join(tag_list) + '"]'
     
     flux = f'''
         from(bucket:"{BUCKET}")
@@ -166,9 +179,10 @@ def chiller_tank_temp():
         '''
     
     return flux_to_df(flux)
-
-def chiller_tank_temp_history(start="-24h", stop="now()", every="15m"):
-    tag_filter = " or ".join([f'r["Source_tag"] == "{t}"' for t in tank_tag])
+#history
+def chiller_tank_temp_history(plant_id, start="-24h", stop="now()", every="15m"):
+    tag_list = temp_tank_tag(plant_id)
+    tag_filter = " or ".join([f'r["Source_tag"] == "{t}"' for t in tag_list])
 
     flux = f'''
         from(bucket:"{BUCKET}")
@@ -181,15 +195,14 @@ def chiller_tank_temp_history(start="-24h", stop="now()", every="15m"):
 
 
 #Thermoform
-tf_tag = [
-    "Modbus_TF4.18CT1.Main_Thermoform_kW_Cal",
-    "Modbus_TF5.18CT1.Main_Thermoform_kW_Cal",
-    "Modbus_TF7.18CT1.Main_Thermoform_kW_Cal"
+def temp_tf_tag(plant_id):
+    plant = config.get_plant(plant_id)
+    tag_list = plant["tags"]["TF"]
+    return tag_list
 
-]
-
-def thermoform_power():
-    tags = '["' + '","'.join(tf_tag) + '"]'
+def thermoform_power(plant_id):
+    tag_list = temp_tf_tag(plant_id)
+    tags = '["' + '","'.join(tag_list) + '"]'
     
     flux = f'''
         from(bucket:"{BUCKET}")
@@ -204,8 +217,9 @@ def thermoform_power():
     return flux_to_df(flux)
 
 #history
-def thermoform_power_history(start="-24h", stop="now()", every="15m"):
-    tag_filter = " or ".join([f'r["Source_tag"] == "{t}"' for t in tf_tag])
+def thermoform_power_history(plant_id, start="-24h", stop="now()", every="15m"):
+    tag_list = temp_tf_tag(plant_id)
+    tag_filter = " or ".join([f'r["Source_tag"] == "{t}"' for t in tag_list])
 
     flux = f'''
         from(bucket:"{BUCKET}")

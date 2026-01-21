@@ -6,7 +6,7 @@ import pandas as pd
 import numpy as np
 import re
 
-test_mockup = True
+test_mockup = False
 
 def _float_or_none(v):
     if v is None:
@@ -71,8 +71,8 @@ def _pivot_history_to_records(df: pd.DataFrame):
 
 
 #-------Chiller power-------#
-def df_chiller_power():
-    df = chiller_query.chiller_power()
+def df_chiller_power(plant_id):
+    df = chiller_query.chiller_power(plant_id)
     result = build_param_response(df, include_total=True)
 
     if test_mockup:
@@ -93,16 +93,16 @@ def df_chiller_power():
             }
     return  result
 
-def df_chiller_power_history(start="-20d", stop="now()", every = "30m"):
-    df = chiller_query.chiller_power_history(start, stop, every)
+def df_chiller_power_history(plant_id, start="-20d", stop="now()", every = "30m"):
+    df = chiller_query.chiller_power_history(plant_id, start, stop, every)
     
     return _pivot_history_to_records(df)
 
 
 
 #-------pump_power-------#
-def df_pump_power():
-    df = chiller_query.pump_power()
+def df_pump_power(plant_id):
+    df = chiller_query.pump_power(plant_id)
     result = build_param_response(df)
 
     if test_mockup:
@@ -127,14 +127,14 @@ def df_pump_power():
         }
     return result
 
-def df_pump_power_history(start="-24h", stop="now()", every="10m"):
-    df = chiller_query.pump_power_history(start, stop, every)
+def df_pump_power_history(plant_id,start="-24h", stop="now()", every="10m"):
+    df = chiller_query.pump_power_history(plant_id, start, stop, every)
     return _pivot_history_to_records(df)
 
 
 #-------flow-------#
-def df_pump_flow():
-    df = chiller_query.pump_flow()
+def df_pump_flow(plant_id):
+    df = chiller_query.pump_flow(plant_id)
     result = build_param_response(df)
 
     if test_mockup:
@@ -150,13 +150,13 @@ def df_pump_flow():
         }
     return result
 
-def df_pump_flow_history(start="-24h", stop="now()", every="10m"):
-    df = chiller_query.pump_flow_history(start, stop, every)
+def df_pump_flow_history(plant_id, start="-24h", stop="now()", every="10m"):
+    df = chiller_query.pump_flow_history(plant_id, start, stop, every)
     return _pivot_history_to_records(df)
 
 #------temp_chiller-------#
-def df_chiller_temp():
-    df = chiller_query.chiller_temp()
+def df_chiller_temp(plant_id):
+    df = chiller_query.chiller_temp(plant_id)
     result = build_param_response(df, include_total=True)
     if test_mockup:
         result ={
@@ -183,14 +183,14 @@ def df_chiller_temp():
             }
     return  result
 
-def df_chiller_temp_history(start="-24h", stop="now()", every="10m"):
-    df = chiller_query.chiller_temp_history(start, stop, every)
+def df_chiller_temp_history(plant_id, start="-24h", stop="now()", every="10m"):
+    df = chiller_query.chiller_temp_history(plant_id, start, stop, every)
     return _pivot_history_to_records(df)
 
 
 #chiller_temp
-def df_chiller_tank_temp():
-    df = chiller_query.chiller_tank_temp()
+def df_chiller_tank_temp(plant_id):
+    df = chiller_query.chiller_tank_temp(plant_id)
     result = build_param_response(df, include_total=True)
     if test_mockup:
         result ={
@@ -210,20 +210,20 @@ def df_chiller_tank_temp():
             }
     return  result
 
-def df_chiller_tank_temp_history(start="-24h", stop="now()", every="10m"):
-    df = chiller_query.chiller_tank_temp_history(start, stop, every)
+def df_chiller_tank_temp_history(plant_id, start="-24h", stop="now()", every="10m"):
+    df = chiller_query.chiller_tank_temp_history(plant_id, start, stop, every)
     return _pivot_history_to_records(df)
 
 
 
 #Thermoform
-def df_thermoform_power():
-    df = chiller_query.thermoform_power()
+def df_thermoform_power(plant_id):
+    df = chiller_query.thermoform_power(plant_id)
     return build_param_response(df)
 
 #history
-def df_thermoform_power_history(start="-24h", stop="now()", every="10m"):
-    df = chiller_query.thermoform_power_history(start, stop, every)
+def df_thermoform_power_history(plant_id, start="-24h", stop="now()", every="10m"):
+    df = chiller_query.thermoform_power_history(plant_id, start, stop, every)
     return _pivot_history_to_records(df)
 
 
@@ -236,9 +236,9 @@ def kw_cooling(flow_m3h: float, dt_c: float) -> float:
     # kg/s * (kJ/kgK) => kJ/sK = kW/K
     return (flow_m3h * RHO * CP * dt_c) / 3600.0
 
-def df_cooling_capa_history(start="-24h", stop="now()", every="10m"):
-    df_temp = chiller_query.chiller_tank_temp_history(start, stop, every)
-    df_flow = chiller_query.pump_flow_history(start, stop, every)
+def df_cooling_capa_history(plant_id, start="-24h", stop="now()", every="10m"):
+    df_temp = chiller_query.chiller_tank_temp_history(plant_id, start, stop, every)
+    df_flow = chiller_query.pump_flow_history(plant_id, start, stop, every)
     #constant param
     Cp = 1.163
 
@@ -266,30 +266,19 @@ def df_cooling_capa_history(start="-24h", stop="now()", every="10m"):
     return out
 
 #COP (flow*cp*dif_temp)
-def df_cop():
-    pw = df_chiller_power()
-    fl = df_pump_flow()
-    tp = df_chiller_temp()
+def df_cop(plant_id):
+    pw = df_chiller_power(plant_id)
+    fl = df_pump_flow(plant_id)
+    tp = df_chiller_temp(plant_id)
     
     if not pw or not fl or not tp:
         return None
     
-    MAP = {
-        "P2_CH01": {
-            "power": "Winenergy.P2CH01.kW",
-            "flow": "Winenergy.P2CH01.Flow_Counter",
-            "t_ret": "Chiller.PLANT_Node2.CLG2_CH01_EVAP_ENTERING_WATER_TEMP_1",
-            "t_sup": "Chiller.PLANT_Node2.CLG2_CH01_EVAP_LEAVING_WATER_TEMP_1"
-        },
+    plant = config.get_plant(plant_id)
+    MAP = plant["cop_map"]
+ 
 
-        "P2_CH02": {
-            "power": "Winenergy.P2CH02.kW",
-            "flow": "Winenergy.P2CH01.Flow_Counter",
-            "t_ret": "Chiller.PLANT_Node2.CLG2_CH02_EVAP_ENTERING_WATER_TEMP_1",
-            "t_sup": "Chiller.PLANT_Node2.CLG2_CH02_EVAP_LEAVING_WATER_TEMP_1"
-        },
-
-    }
+    
     out = {}
     
     for name, m in MAP.items():
@@ -306,8 +295,8 @@ def df_cop():
         except KeyError:
             continue
         
-        print(f"p_kw = {p_kw}")
-        f_m3h = 150
+        #print(f"p_kw = {p_kw}")
+        f_m3h = 150 #mockup
         dt = t_ret - t_sup
         q_kw = kw_cooling(f_m3h, dt)  
         cop = (q_kw / p_kw) if p_kw > 30 else None
@@ -331,8 +320,8 @@ PUMP_TAGS = [
 
 
 #Cost
-def pump_power_cost_history(start="-24h", stop="now()", every="10m", rate=4.0):
-    chiller = chiller_query.pump_power_history(start, stop, every)
+def pump_power_cost_history(plant_id, start="-24h", stop="now()", every="10m", rate=4.0):
+    chiller = chiller_query.pump_power_history(plant_id,start, stop, every)
     df_chiller = _pivot_history_to_records(chiller)
 
     df = pd.DataFrame(df_chiller) #list[dict]
@@ -447,64 +436,12 @@ def df_pump_total_predict_history(start="-24h", stop="now()", every="10m", rate=
         },
     }
 
-#reccomend
 
-def df_recommend(start="-30d", stop="now()", every="1h"):
-
-    tf = pd.DataFrame(df_thermoform_power_history(start=start, stop=stop, every=every))
-    tank = pd.DataFrame(df_chiller_tank_temp_history(start=start, stop=stop, every=every))
-
-    tf["ts"] = pd.to_datetime(tf["ts"], utc=True, errors="coerce")
-    tank["ts"] = pd.to_datetime(tank["ts"], utc=True, errors="coerce")
-
-
-    # รวมให้เป็น df เดียว จะได้กรองแล้วเอา temp ไปเฉลี่ยได้ทันที
-    df = tf.merge(tank, on="ts", how="inner")
-
-    col4 = "Modbus_TF4.18CT1.Main_Thermoform_kW_Cal"
-    col5 = "Modbus_TF5.18CT1.Main_Thermoform_kW_Cal"
-    col7 = "Modbus_TF7.18CT1.Main_Thermoform_kW_Cal"
-    tempcol = "Chiller.PLANT_Node2.CLG2_TEMP_CHWR"
-
-    # condition
-    on_3TF = (df[col4] > 40) & (df[col5] > 40) & (df[col7] > 40)
-    on_2TF = (
-        ((df[col4] > 40) & (df[col5] > 40)) |
-        ((df[col4] > 40) & (df[col7] > 40)) |
-        ((df[col5] > 40) & (df[col7] > 40))
-    )
-    
-    #  fill out to new df
-    df_2TF = df.loc[on_2TF].copy()
-    df_3TF = df.loc[on_3TF].copy()
-    #print(df_3TF)
-    #  make average
-    mean_2TF = df_2TF[tempcol].mean() if not df_2TF.empty else np.nan
-    mean_3TF = df_3TF[tempcol].mean() if not df_3TF.empty else np.nan
-
-    return {
-        "ok": True,
-        "rows": {"on_2TF": len(df_2TF), "on_3TF": len(df_3TF)},
-        "mean_TF": {
-            "on_2TF": None if np.isnan(mean_2TF) else round(mean_2TF, 2),
-            "on_3TF": None if np.isnan(mean_3TF) else round(mean_3TF, 2),
-        }
-    }
-
-"""
-def suggestion:
-    def function for pull raw data such as Power, cooling capa, temp return, temp supply
-    def chck about number of chiller status
-    def condition
-        if on 2 chiller
-        if on 1 chiller
-
-"""
 
 
 
 def suggestion():
-    def pull_data(start="-12h", stop="now()", every="15m"):
+    def pull_data(start="-12h", stop="now()", every="15m"): #sum primary data
         
         percent_load = 85 #%
         load_input_max = 240 #kW
@@ -512,13 +449,14 @@ def suggestion():
         ch_power_df = pd.DataFrame(df_chiller_power_history(start=start, stop=stop, every=every))
         ch_temp_df = pd.DataFrame(df_chiller_temp_history(start=start, stop=stop, every=every))
         ch_flow_df = pd.DataFrame(df_pump_flow_history(start=start, stop=stop, every=every))
+        ch_cooling_df = pd.DataFrame(df_cooling_capa_history(start=start, stop=stop, every=every))
 
-        for df in [ch_power_df, ch_temp_df, ch_flow_df]:
+        for df in [ch_power_df, ch_temp_df, ch_flow_df, ch_cooling_df]:
             if not df.empty and "ts" in df.columns:
                 df["ts"] = pd.to_datetime(df["ts"], utc=True, errors="coerce")
                 df = df.dropna(subset=["ts"])
                 if df.empty:
-                    return pd.DataFrame()   # หรือ return {"ok": False, "error": "no data"}
+                    return pd.DataFrame()
 
 
         
@@ -530,7 +468,9 @@ def suggestion():
         if not ch_flow_df.empty:
             raw_df = pd.merge(raw_df, ch_flow_df, on="ts", how="outer")
 
-        # 4. เรียงเวลาและ Fillna (ถ้าจำเป็น)
+        if not ch_cooling_df.empty:
+            raw_df = pd.merge(raw_df, ch_cooling_df, on="ts", how="outer")
+
         raw_df = raw_df.sort_values("ts")
 
         print(raw_df)
@@ -591,6 +531,7 @@ def suggestion():
         percent_load = 85 #%
         power_P2CH1 = "Winenergy.P2CH01.kW"
         power_P2CH2 = "Winenergy.P2CH02.kW"
+        cooling_capa = "COP"
         result_df = pull_data(start=start, stop=stop, every=every)
         ch_now = df_chiller_power()
         #power check
@@ -604,28 +545,29 @@ def suggestion():
         result_df["P2CH2_on"] = result_df[power_P2CH2] > 50
         P2CH2_on = result_df["P2CH2_on"].all()"""
         
-        P2CH1_on = ch_now["param"]["Winenergy.P2CH01.kW"]["online"]
-        P2CH2_on = ch_now["param"]["Winenergy.P2CH02.kW"]["online"]
+        """ P2CH1_on = ch_now["param"]["Winenergy.P2CH01.kW"]["online"]
+        P2CH2_on = ch_now["param"]["Winenergy.P2CH02.kW"]["online"]"""
 
         #%Load calculation
         result_df["percent_load_p2_ch1"] = ((result_df[power_P2CH1] / power_peak) * 100) > percent_load
         result_df["percent_load_p2_ch2"] = ((result_df[power_P2CH2] / power_peak) * 100) > percent_load
         
+        #%load over
         P2CH1_over = result_df["percent_load_p2_ch1"].all()        
         P2CH2_over = result_df["percent_load_p2_ch2"].all()
 
+        result_df["p2_cooling_capa_over"] = result_df["cooling_capa"] > cooling_low
+        #cooling capa over
+        all_true_cooling_capa = result_df[cooling_capa].all()
 
-        
-        
-        cooling_df = df_cooling_capa_history(start=start, stop=stop, every=every)
-        cooling_df = cooling_df.dropna(subset=["cooling_capa"])
-
-        cooling_df["p2_cooling_capa_out"] = cooling_df["cooling_capa"] > cooling_low
-        all_true_cooling_capa = cooling_df["p2_cooling_capa_out"].all()
+        #check online
+        last = result_df.iloc[-1]
+        P2CH1_on =  last["param"][power_P2CH1]["online"]
+        P2CH2_on =  last["param"][power_P2CH2]["online"]
         
         #cooling_capa check
         if all_true_cooling_capa == True: #cooling over
-            last = cooling_df.iloc[-1]
+            
             val = float(last["cooling_capa"])
             reason = f"Cooling capa more than {cooling_low} at {val:.2f}"
 
@@ -649,7 +591,7 @@ def suggestion():
                         "reason": f"%load more than {percent_load} %"
                     }
                 else: #%load in range
-                    last = cooling_df.iloc[-1]
+                    last = result_df.iloc[-1]
                     return {
                         "ok": True,
                         "status": "Now P2CH1 ON",
@@ -667,7 +609,7 @@ def suggestion():
                         "reason": f"%load more than {percent_load} %"
                     }
                 else: 
-                    last = cooling_df.iloc[-1]
+                    last = result_df.iloc[-1]
                     return {
                         "ok": True,
                         "status": "Now P2CH2 ON",
