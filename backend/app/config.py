@@ -44,14 +44,15 @@ PLANTS = {
             "CH01": {
                 "power": "Winenergy.P1CH01.kW", 
                 "flow": "Winenergy.P1CH01.Flow_Counter", 
-                "t_ret": "Chiller.PLANT_Node3.CLG1_TANK1_CHR_TEMP",
-                "t_sup": "Chiller.PLANT_Node3.CLG1_TANK1_CHS_TEMP"
+                "t_ret": "Chiller.PLANT_Node3.CLG1_TANK1_CHS_TEMP",
+                "t_sup": "Chiller.PLANT_Node3.CLG1_TANK1_CHR_TEMP",
+                
                 },
             "CH02": {
                 "power": "Winenergy.P1CH02.kW", 
                 "flow": "Winenergy.P1CH01.Flow_Counter", 
-                "t_ret": "Chiller.PLANT_Node3.CLG1_TANK1_CHR_TEMP",
-                "t_sup": "Chiller.PLANT_Node3.CLG1_TANK1_CHS_TEMP"
+                "t_ret": "Chiller.PLANT_Node3.CLG1_TANK1_CHS_TEMP",
+                "t_sup": "Chiller.PLANT_Node3.CLG1_TANK1_CHR_TEMP",
                 },  
         }
     },
@@ -95,14 +96,14 @@ PLANTS = {
                 },
             "CH02": {
                 "power": "Winenergy.P2CH02.kW", 
-                "flow": "Winenergy.P1CH01.Flow_Counter", 
-                "t_ret": "Chiller.PLANT_Node2.CLG2_TANK1_CHR_TEMP",
-                "t_sup": "Chiller.PLANT_Node2.CLG2_TANK1_CHS_TEMP"
+                "flow": "Winenergy.P2CH01.Flow_Counter", 
+                "t_ret": "Chiller.PLANT_Node2.CLG2_TEMP_CHWR",
+                "t_sup": "Chiller.PLANT_Node2.CLG2_TEMP_CHWS"
                 },  
         },
     }
 }
-DEFAULT_PLANT = "P2"
+DEFAULT_PLANT = "P1"
 
 def get_plant(plant_id: str | None = None) -> dict:
     pid = plant_id or DEFAULT_PLANT

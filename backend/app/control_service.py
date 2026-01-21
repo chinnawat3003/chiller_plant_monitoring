@@ -250,11 +250,11 @@ def df_cooling_capa_history(plant_id, start="-24h", stop="now()", every="10m"):
     raw_df = pd.concat([df_temp, df_flow], ignore_index=True).sort_values("ts")
     wide = raw_df.pivot(index="ts", columns="Source_tag", values="value")
     
-    # different temp
-    p2ch1_ret = wide["Chiller.PLANT_Node2.CLG2_TEMP_CHWR"]
-    p2ch1_sup = wide["Chiller.PLANT_Node2.CLG2_TEMP_CHWS"]
-    
-    wide["dif_temp"] = p2ch1_ret - p2ch1_sup
+    # different temp (use plant COP map CH01)
+    plant = config.get_plant(plant_id)
+    t_ret = plant["cop_map"]["CH01"]["t_ret"]
+    t_sup = plant["cop_map"]["CH01"]["t_sup"]
+    wide["dif_temp"] = wide[t_ret] - wide[t_sup]
 
     #cooling capa 
     #flow = wide["Winenergy.P2CH01.Flow_Counter"]
@@ -269,36 +269,33 @@ def df_cooling_capa_history(plant_id, start="-24h", stop="now()", every="10m"):
 def df_cop(plant_id):
     pw = df_chiller_power(plant_id)
     fl = df_pump_flow(plant_id)
-    tp = df_chiller_temp(plant_id)
+    tp = df_chiller_tank_temp(plant_id)
     
     if not pw or not fl or not tp:
         return None
     
     plant = config.get_plant(plant_id)
-    MAP = plant["cop_map"]
- 
-
-    
+    MAP = plant["cop_map"]    
     out = {}
     
     for name, m in MAP.items():
-        try:
-            def getv(payload, tag):
-                return payload["param"][tag]["data"]
+        
+        def getv(payload, tag):
+            return payload["param"][tag]["data"]
 
-            # ใน loop:
-            p_kw = float(getv(pw, m["power"]))
-            f_m3h = float(getv(fl, m["flow"]))
-            t_ret = float(getv(tp, m["t_ret"]))
-            t_sup = float(getv(tp, m["t_sup"]))
+        # ใน loop:
+        p_kw = float(getv(pw, m["power"]))
+        f_m3h = float(getv(fl, m["flow"]))
+        t_ret = float(getv(tp, m["t_ret"]))
+        t_sup = float(getv(tp, m["t_sup"]))
 
-        except KeyError:
-            continue
         
         #print(f"p_kw = {p_kw}")
         f_m3h = 150 #mockup
         dt = t_ret - t_sup
+        #dt = 3
         q_kw = kw_cooling(f_m3h, dt)  
+        
         cop = (q_kw / p_kw) if p_kw > 30 else None
 
         out[name] = {
@@ -310,18 +307,9 @@ def df_cop(plant_id):
     return {"ts": ts, "data": out}
 
 
-PUMP_TAGS = [
-    "Winenergy.P2CHP09.kW",
-    "Winenergy.P2CHP10.kW",
-    "Winenergy.P2CHP11.kW"
-]
-
-
-
-
 #Cost
 def pump_power_cost_history(plant_id, start="-24h", stop="now()", every="10m", rate=4.0):
-    chiller = chiller_query.pump_power_history(plant_id,start, stop, every)
+    chiller = chiller_query.pump_power_history(plant_id, start, stop, every)
     df_chiller = _pivot_history_to_records(chiller)
 
     df = pd.DataFrame(df_chiller) #list[dict]
@@ -364,10 +352,6 @@ def pump_power_cost_history(plant_id, start="-24h", stop="now()", every="10m", r
 
     #print(total_kwh, total_thb)
 
-    pump = chiller_query.pump_power_history()
-    df_pump = build_param_response(pump)
-
-
     return {
             "ok": True,
             "rate": rate,
@@ -380,9 +364,9 @@ def pump_power_cost_history(plant_id, start="-24h", stop="now()", every="10m", r
 
 
 
-def predict_cost_history(start="-24h", stop="now()", every="10m",rate=4.0 , rpm_drop=0.8):
+def predict_cost_history(plant_id, start="-24h", stop="now()", every="10m",rate=4.0 , rpm_drop=0.8):
     rpm_drop = max(0.0, min(1.0, rpm_drop))
-    raw = pump_power_cost_history(start, stop, every, rate)
+    raw = pump_power_cost_history(plant_id, start, stop, every, rate)
     power_ratio = rpm_drop**3
     power_drop = power_ratio*raw["data"]
     saving = (1-power_ratio)
@@ -400,15 +384,18 @@ def predict_cost_history(start="-24h", stop="now()", every="10m",rate=4.0 , rpm_
     }
 
 
-def df_pump_total_predict_history(start="-24h", stop="now()", every="10m", rate=4.0, rpm_drop=0.8):
+def df_pump_total_predict_history(plant_id, start="-24h", stop="now()", every="10m", rate=4.0, rpm_drop=0.8):
     rpm_drop = max(0.0, min(1.0, float(rpm_drop)))
     power_ratio = rpm_drop ** 3
+    plant = config.get_plant(plant_id)
+    pump_tags = plant["tags"]["pump_power"]
 
-    raw_hist = df_pump_power_history(start=start, stop=stop, every=every)  # list[dict]: ts + tags
+
+    raw_hist = df_pump_power_history(plant_id, start=start, stop=stop, every=every)  # list[dict]: ts + tags
     history = []
     for r in raw_hist:
         total = 0.0
-        for tag in PUMP_TAGS:
+        for tag in pump_tags:
             v = r.get(tag)
             if isinstance(v, (int, float)):
                 total += float(v)
@@ -436,274 +423,159 @@ def df_pump_total_predict_history(start="-24h", stop="now()", every="10m", rate=
         },
     }
 
+def suggestion(plant_id):
+    plant = config.get_plant(plant_id)
+    print(plant)
+    cop_map = plant["cop_map"]  # {"CH01": {...}, "CH02": {...}}
+    power_tags = [m["power"] for m in cop_map.values()]
 
+    # -------- helpers --------
+    def _clean_ts(df: pd.DataFrame) -> pd.DataFrame:
+        if df is None or df.empty or "ts" not in df.columns:
+            return pd.DataFrame()
+        df = df.copy()
+        df["ts"] = pd.to_datetime(df["ts"], utc=True, errors="coerce")
+        df = df.dropna(subset=["ts"]).sort_values("ts")
+        return df
 
+    def pull_data(start="-12h", stop="now()", every="15m"):
+        ch_power_df   = _clean_ts(pd.DataFrame(df_chiller_power_history(plant_id, start=start, stop=stop, every=every)))
+        ch_cooling_df = _clean_ts(pd.DataFrame(df_cooling_capa_history(plant_id, start=start, stop=stop, every=every)))
 
+        if ch_power_df.empty:
+            return pd.DataFrame()
 
-def suggestion():
-    def pull_data(start="-12h", stop="now()", every="15m"): #sum primary data
-        
-        percent_load = 85 #%
-        load_input_max = 240 #kW
-
-        ch_power_df = pd.DataFrame(df_chiller_power_history(start=start, stop=stop, every=every))
-        ch_temp_df = pd.DataFrame(df_chiller_temp_history(start=start, stop=stop, every=every))
-        ch_flow_df = pd.DataFrame(df_pump_flow_history(start=start, stop=stop, every=every))
-        ch_cooling_df = pd.DataFrame(df_cooling_capa_history(start=start, stop=stop, every=every))
-
-        for df in [ch_power_df, ch_temp_df, ch_flow_df, ch_cooling_df]:
-            if not df.empty and "ts" in df.columns:
-                df["ts"] = pd.to_datetime(df["ts"], utc=True, errors="coerce")
-                df = df.dropna(subset=["ts"])
-                if df.empty:
-                    return pd.DataFrame()
-
-
-        
         raw_df = ch_power_df
-
-        if not ch_temp_df.empty:
-            raw_df = pd.merge(raw_df, ch_temp_df, on="ts", how="outer")
-            
-        if not ch_flow_df.empty:
-            raw_df = pd.merge(raw_df, ch_flow_df, on="ts", how="outer")
-
         if not ch_cooling_df.empty:
             raw_df = pd.merge(raw_df, ch_cooling_df, on="ts", how="outer")
 
         raw_df = raw_df.sort_values("ts")
-
-        print(raw_df)
-        
         return raw_df
-    
-    def check_status_chiller_on():
-        num_chiller_open = 0
-        ch_power_df = df_chiller_power()
-        #print(ch_power_df)
-        
-        data_P1CH1 = ch_power_df["param"]["Winenergy.P2CH01.kW"]["data"]
-        data_P1CH2 = ch_power_df["param"]["Winenergy.P2CH02.kW"]["data"]
-        #print(data_P1CH2)
-        if data_P1CH1 > 50 and data_P1CH2 > 50:
-            num_chiller_open = 2
-        elif data_P1CH1 > 50 or data_P1CH2 > 50:
-            num_chiller_open = 1
-        return {
-            "ok": True,
-            "num_chiller_on": num_chiller_open
-            }
-    
+
+    def check_status_chiller_on(th_kw=50.0):
+        snap = df_chiller_power(plant_id)  # current snapshot
+        if not snap or not snap.get("ok"):
+            return {"ok": False, "num_chiller_on": 0}
+
+        num_on = 0
+        for tag in power_tags:
+            v = snap.get("param", {}).get(tag, {}).get("data", 0)
+            if isinstance(v, (int, float)) and float(v) > th_kw:
+                num_on += 1
+
+        return {"ok": True, "num_chiller_on": num_on}
+
     def on_2_condition(start="-12h", stop="now()", every="20m", cooling_low=686):
-        result_df = pull_data(start=start, stop=stop, every=every)
+        df = _clean_ts(pd.DataFrame(df_cooling_capa_history(plant_id, start=start, stop=stop, every=every)))
+        if df.empty or "cooling_capa" not in df.columns:
+            return {"ok": True, "status": "Now 2 Chiller ON", "suggest": "-", "reason": "no cooling data"}
 
-        cooling_df = df_cooling_capa_history(start=start, stop=stop, every=every)
-        cooling_df = cooling_df.dropna(subset=["cooling_capa"])
-        
-        cooling_df["p2_cooling_capa_out"] = cooling_df["cooling_capa"] < cooling_low
-        #print(cooling_df["p2_cooling_capa_out"])
-        all_true_cooling_capa = cooling_df["p2_cooling_capa_out"].all()
-        print(all_true_cooling_capa)
+        # เงื่อนไข: cooling ต่ำกว่า threshold ตลอดช่วง -> แนะนำลดเหลือ 1 chiller
+        all_low = (df["cooling_capa"].dropna() < cooling_low).all()
 
-        if all_true_cooling_capa == True:
-            
+        if all_low:
             return {
                 "ok": True,
                 "status": "Now 2 Chiller ON",
                 "suggest": "ON 1 Chiller",
-                "reason": f"Cooling capa less than {cooling_low}"
+                "reason": f"Cooling capa less than {cooling_low} (all points)"
             }
-        if all_true_cooling_capa == False:
-
+        else:
             return {
                 "ok": True,
                 "status": "Now 2 Chiller ON",
                 "suggest": "-",
-                "reason": f"Cooling capa more than {cooling_low}"
+                "reason": f"Cooling capa more than {cooling_low} (some points)"
             }
-        
-        print(f"all_true_cooling_capa_p2 = {all_true_cooling_capa}")
-        
-    
+
     def on_1_condition(start="-1h", stop="now()", every="15m", cooling_low=686):
-        #constant
-        power_peak = 250
-        percent_load = 85 #%
-        power_P2CH1 = "Winenergy.P2CH01.kW"
-        power_P2CH2 = "Winenergy.P2CH02.kW"
-        cooling_capa = "COP"
-        result_df = pull_data(start=start, stop=stop, every=every)
-        ch_now = df_chiller_power()
-        #power check
-        which_one_on = "None"
+        # constant (คุณปรับทีหลังได้)
+        power_peak = 250.0
+        percent_load = 85.0  # %
 
-        
-        
-            
-        """result_df["P2CH1_on"] = result_df[power_P2CH1] > 50 #check on-off
-        P2CH1_on = result_df["P2CH1_on"].all()
-        result_df["P2CH2_on"] = result_df[power_P2CH2] > 50
-        P2CH2_on = result_df["P2CH2_on"].all()"""
-        
-        """ P2CH1_on = ch_now["param"]["Winenergy.P2CH01.kW"]["online"]
-        P2CH2_on = ch_now["param"]["Winenergy.P2CH02.kW"]["online"]"""
+        df = pull_data(start=start, stop=stop, every=every)
+        if df.empty:
+            return {"ok": True, "status": "Now 1 Chiller ON", "suggest": "-", "reason": "no history"}
 
-        #%Load calculation
-        result_df["percent_load_p2_ch1"] = ((result_df[power_P2CH1] / power_peak) * 100) > percent_load
-        result_df["percent_load_p2_ch2"] = ((result_df[power_P2CH2] / power_peak) * 100) > percent_load
-        
-        #%load over
-        P2CH1_over = result_df["percent_load_p2_ch1"].all()        
-        P2CH2_over = result_df["percent_load_p2_ch2"].all()
+        snap = df_chiller_power(plant_id)  # current snapshot
+        if not snap or not snap.get("ok"):
+            return {"ok": True, "status": "Now 1 Chiller ON", "suggest": "-", "reason": "no snapshot"}
 
-        result_df["p2_cooling_capa_over"] = result_df["cooling_capa"] > cooling_low
-        #cooling capa over
-        all_true_cooling_capa = result_df[cooling_capa].all()
+        # หา chiller ที่กำลัง ON จาก snapshot
+        on_tag = None
+        on_val = 0.0
+        for tag in power_tags:
+            v = float(snap.get("param", {}).get(tag, {}).get("data", 0))
+            if v > 50:
+                on_tag = tag
+                on_val = v
+                break
 
-        #check online
-        last = result_df.iloc[-1]
-        P2CH1_on =  last["param"][power_P2CH1]["online"]
-        P2CH2_on =  last["param"][power_P2CH2]["online"]
-        
-        #cooling_capa check
-        if all_true_cooling_capa == True: #cooling over
-            
-            val = float(last["cooling_capa"])
-            reason = f"Cooling capa more than {cooling_low} at {val:.2f}"
+        if on_tag is None:
+            return {"ok": True, "status": "Now 1 Chiller ON", "suggest": "-", "reason": "cannot detect running chiller"}
 
-            return {
-                "ok": True,
-                "status": "Now 1 Chiller ON",
-                "suggest": "ON 2 Chiller",
-                "reason": reason
-            }
-        
-        else:
-            
-            if P2CH1_on == True: #chiller1 on and %Load over
-                which_one_on = power_P2CH1
-                if P2CH1_over == True: 
-
-                    return {
-                        "ok": True,
-                        "status": "Now P2CH1 ON",
-                        "suggest": "ON 2 Chiller",
-                        "reason": f"%load more than {percent_load} %"
-                    }
-                else: #%load in range
-                    last = result_df.iloc[-1]
-                    return {
-                        "ok": True,
-                        "status": "Now P2CH1 ON",
-                        "suggest": "-",
-                        "reason": f"Cooling capa less than {cooling_low} at {round(last["cooling_capa"], 2)} and %load less than {percent_load} %"
-                    }
-                
-            if P2CH2_on == True: #chiller2 on and %Load over
-                which_one_on = power_P2CH2
-                if P2CH2_over == True:
-                    return {
-                        "ok": True,
-                        "status": "Now P2CH2 ON",
-                        "suggest": "ON 2 Chiller",
-                        "reason": f"%load more than {percent_load} %"
-                    }
-                else: 
-                    last = result_df.iloc[-1]
-                    return {
-                        "ok": True,
-                        "status": "Now P2CH2 ON",
-                        "suggest": "-",
-                        "reason": f"Cooling capa less than {cooling_low} at {round(last["cooling_capa"], 2)} and %load less than {percent_load} %"
-                    }
-
-        
-
-
-        if P2CH1_on == True: #chiller1 on
-            which_one_on = power_P2CH1
-            if P2CH1_over == True: #%Load over
+        # เงื่อนไข 1: cooling capacity สูงเกิน -> เปิดเพิ่ม
+        if "cooling_capa" in df.columns:
+            last_c = df["cooling_capa"].dropna()
+            if not last_c.empty and (last_c > cooling_low).all():
                 return {
                     "ok": True,
-                    "status": "Now P2CH1 ON",
+                    "status": f"Now 1 Chiller ON ({on_tag})",
                     "suggest": "ON 2 Chiller",
-                    "reason": f"%load more than {percent_load} %"
+                    "reason": f"Cooling capa more than {cooling_low}"
                 }
-            else:
-                return {
-                    "ok": True,
-                    "status": "Now P2CH1 ON",
-                    "suggest": "-",
-                    "reason": f"%load less than {percent_load} %"
-                }
-            
-        elif P2CH2_on == True: #chiller2 on
-            which_one_on = power_P2CH2
-            if P2CH2_over == True: #%Load over
-                return {
-                    "ok": True,
-                    "status": "Now P2CH2 ON",
-                    "suggest": "ON 2 Chiller",
-                    "reason": f"%load more than {percent_load} %"
-                }
-            else:
-                return {
-                    "ok": True,
-                    "status": "Now P2CH2 ON",
-                    "suggest": "-",
-                    "reason": f"%load less than {percent_load} %"
-                }
+
+        # เงื่อนไข 2: %load chiller ที่กำลังวิ่ง เกิน threshold -> เปิดเพิ่ม
+        if on_tag in df.columns:
+            series = pd.to_numeric(df[on_tag], errors="coerce").dropna()
+            if not series.empty:
+                over = ((series / power_peak) * 100.0 > percent_load).all()
+                if over:
+                    return {
+                        "ok": True,
+                        "status": f"Now 1 Chiller ON ({on_tag})",
+                        "suggest": "ON 2 Chiller",
+                        "reason": f"%load more than {percent_load}%"
+                    }
+
         return {
             "ok": True,
-            "status": "Now 1 Chiller ON",
+            "status": f"Now 1 Chiller ON ({on_tag})",
             "suggest": "-",
-            "reason": "No condition matched"
+            "reason": f"load={round((on_val/power_peak)*100, 2)}% and cooling not over"
         }
 
-
-
-        
-    
-    #start get in condition
+    # -------- main decision --------
     start = "-12h"
     stop = "now()"
     every = "20m"
     cooling_low = 686
-    check_num_chiller_on = check_status_chiller_on()
 
+    st = check_status_chiller_on()
 
-    if check_num_chiller_on["num_chiller_on"] == 2:
-    
+    if st.get("num_chiller_on", 0) >= 2:
         return on_2_condition(start=start, stop=stop, every=every, cooling_low=cooling_low)
-    
-    elif check_num_chiller_on["num_chiller_on"] == 1:
-        return on_1_condition(start=start, stop=stop, every=every, cooling_low=cooling_low)
 
-        
-    
-    elif check_num_chiller_on["num_chiller_on"] == 0:
-        return {
-                    "ok": True,
-                    "status": "Plant close",
-                    "suggest": "-",
-                    "reason": "-"
-                }
-    
-    return {
-        "ok": False,
-        "status": "Unknown state",
-        "suggest": "-",
-        "reason": "Invalid chiller status"
-    }
+    if st.get("num_chiller_on", 0) == 1:
+        return on_1_condition(start="-1h", stop=stop, every="15m", cooling_low=cooling_low)
+
+    return {"ok": True, "status": "Plant close", "suggest": "-", "reason": "-"}
+
+
+
 
 #limit
-def limit_chiller_power_input():
-    data = df_chiller_power()
+def limit_chiller_power_input(plant_id):
+    data = df_chiller_power(plant_id)
+    plant = config.get_plant(plant_id)
+    ch_tags = plant["tags"]["chiller_power"]
+    # consider chiller online if any chiller power tag is online
+    any_online = any(data.get("param", {}).get(t, {}).get("online") for t in ch_tags)
     #if data = 0 
-    if data["param"]["Winenergy.P2CH01.kW"]["online"] or data["param"]["Winenergy.P2CH02.kW"]["online"]:
+    if any_online:
         
         data["limits"] = {"low": 75.0, "high": 250.0}
-    elif not (data["param"]["Winenergy.P2CH01.kW"]["online"] or data["param"]["Winenergy.P2CH02.kW"]["online"]):
+    elif not any_online:
         
         data["limits"] = {"low": 0.0, "high": 0.0}
 

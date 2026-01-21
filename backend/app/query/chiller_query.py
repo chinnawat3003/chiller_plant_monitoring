@@ -145,7 +145,7 @@ def chiller_temp(plant_id):
     return flux_to_df(flux)
 #history
 def chiller_temp_history(plant_id, start="-24h", stop="now()", every="15m"):
-    tag_list = pump_power_tag(plant_id)
+    tag_list = temp_chiller_tag(plant_id)
     tag_filter = " or ".join([f'r["Source_tag"] == "{t}"' for t in tag_list])
 
     flux = f'''
