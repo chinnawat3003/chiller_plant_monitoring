@@ -14,11 +14,11 @@ const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000";
 const HEALTH_URL = `${API_BASE}/health`;
 
 // เงื่อนไข "เครื่องทำงาน" (Power kW > threshold)
-const RUN_THRESHOLD_KW = 10;
+const RUN_THRESHOLD_KW = 5;
 
 /**
  * CHARTS
- * - endpoint: history ของกราฟ
+ * - endpoint: history 
  * - limitEndpoint: limit ของกราฟนั้น ๆ (มีเฉพาะบางกราฟ)
  */
 const CHARTS = {

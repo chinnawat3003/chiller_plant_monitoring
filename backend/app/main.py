@@ -157,6 +157,18 @@ def api_thermoform_power_history(
     res = control_service.df_thermoform_power_history(plant_id, start=s, stop=e, every=every)
     return {"ok": True, "series": res}
 
+@app.get("/api/cooling_capa_history")
+def api_cooling_capa_history(
+    plant_id: str = Depends(get_plant_id),
+    from_ts: Optional[str] = Query(None, alias="from"),
+    to_ts: Optional[str] = Query(None, alias="to"),
+    start: str = Query("-24h"),
+    every: str = Query("10m"),
+):
+    s, e = _range_args(from_ts, to_ts, start)
+    res = control_service.df_cooling_capa_history(plant_id, start=s, stop=e, every=every)
+    return {"ok": True, "series": res}
+
 @app.get("/api/chiller_tank_temp_history")
 def api_chiller_tank_temp_history(
     plant_id: str = Depends(get_plant_id),
