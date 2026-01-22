@@ -135,16 +135,14 @@ function monthRangeISO() {
   return { fromIso: from.toISOString(), toIso: now.toISOString() };
 }
 
-async function fetchJson<T>(url: string, plantId: string, timeoutMs = 2500): Promise<T> {
+async function fetchJson<T>(url: string, plantId: string, timeoutMs = 15000): Promise<T> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const res = await fetch(url, {
       signal: ctrl.signal,
       cache: "no-store",
-      headers: {
-        "X-Plant-ID": plantId,
-      },
+      headers: { "X-Plant-ID": plantId },
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return (await res.json()) as T;
@@ -152,6 +150,7 @@ async function fetchJson<T>(url: string, plantId: string, timeoutMs = 2500): Pro
     clearTimeout(t);
   }
 }
+
 
 const sanitizeKey = (k: string) => k.replace(/[^a-zA-Z0-9_]/g, "_");
 
@@ -255,14 +254,12 @@ const MachineBox = ({
  * MAIN PAGE
  * ========================= */
 export default function DashboardPage() {
-  // ถ้าคุณมีหลาย plant จริง ให้เติม list ตรงนี้ก่อน (หรือทำเป็น dropdown จาก config ภายหลัง)
   const PLANTS = useMemo(() => ["P2", "P1"], []);
   const [plantId, setPlantId] = useState<string>(PLANTS[0] ?? "P2");
 
   const [apiStatus, setApiStatus] = useState<ApiStatus>("offline");
   const [apiErrMsg, setApiErrMsg] = useState("FastAPI not connected");
 
-  // snapshots per group (backend คุมจำนวน+ลำดับให้)
   const [snapshots, setSnapshots] = useState<Record<string, OneShotOk | null>>({
     chiller_power: null,
     pump_power: null,
@@ -283,7 +280,7 @@ export default function DashboardPage() {
   const [costLoading, setCostLoading] = useState(false);
   const [costError, setCostError] = useState<string | null>(null);
 
-  const [chartKey, setChartKey] = useState<ChartKey>("pump_pw");
+  const [chartKey, setChartKey] = useState<ChartKey>("chiller_pw"); /**default show */
   const [chartRange, setChartRange] = useState("24h");
   const [chartData, setChartData] = useState<any[]>([]);
   const [chartSeries, setChartSeries] = useState<any[]>([]);
@@ -294,7 +291,7 @@ export default function DashboardPage() {
   const liveInFlight = useRef(false);
   const chartInFlight = useRef(false);
 
-  // ✅ health cache ลด request health
+  // ลด request health
   const healthCacheRef = useRef<{ ts: number; ok: boolean }>({ ts: 0, ok: false });
 
   const ONE_SHOT_GROUPS = useMemo(
@@ -428,7 +425,6 @@ export default function DashboardPage() {
         return cached;
       }
 
-      // 2) state cache
       const existing = chartLimitsMap[ck];
       if (existing && (existing.low !== undefined || existing.high !== undefined)) {
         return existing;
@@ -509,7 +505,9 @@ export default function DashboardPage() {
     setChartLoading(true);
     setChartError(null);
 
-    // 1) cache ก่อน
+    const LIMIT_LOW_COLOR  = "#ff4040"; 
+    const LIMIT_HIGH_COLOR = "#ff4040"; 
+     
     const cachedChart = readCache<{ data: any[]; series: any[] }>(
       cacheKeyChart(chartKey, chartUrl),
       CACHE_TTL_CHART_MS
@@ -602,6 +600,7 @@ export default function DashboardPage() {
           xKey: "ts",
           yKey: "limit_low",
           yName: "Limit Low",
+          stroke: LIMIT_LOW_COLOR,
           strokeWidth: 2,
           marker: { enabled: false },
           lineDash: [6, 6],
@@ -613,6 +612,7 @@ export default function DashboardPage() {
           xKey: "ts",
           yKey: "limit_high",
           yName: "Limit High",
+          stroke: LIMIT_HIGH_COLOR,
           strokeWidth: 2,
           marker: { enabled: false },
           lineDash: [6, 6],
@@ -676,18 +676,18 @@ export default function DashboardPage() {
   }, [chartUrl]);
 
  useEffect(() => {
-    // reset health cache when plant changes
     healthCacheRef.current = { ts: 0, ok: false };
 
-    fetchOneShot();
-    fetchSuggestion();
-    fetchCost();
-    fetchChart();
-
+    (async () => {
+      await fetchOneShot();
+      fetchCost();
+      fetchChart();
+      fetchSuggestion();
+    })();
+    
     const interval = setInterval(fetchOneShot, 10_000);
     return () => clearInterval(interval);
 
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plantId]);
 
   /** =========================
@@ -699,6 +699,18 @@ export default function DashboardPage() {
   const flow = groupItems("flow");
 
   const thermoform = groupItems("thermoform_power");
+
+  const renderMachineColumn = (slots: string[], items: Item[], prefixKey: string) => {
+    return slots.map((slot, idx) => {
+      const it = items[idx];
+      if (it) {
+        return <MachineBox key={it.id} label={it.id} subLabel={it.label} status={runStatus(it)} />;
+      }
+      // placeholder ตอนไม่มี data -> สีแดง (offline)
+      return <MachineBox key={`${prefixKey}-${slot}`} label={slot} subLabel="No data" status="offline" />;
+    });
+  };
+
 
   return (
     <div
@@ -828,8 +840,21 @@ export default function DashboardPage() {
               </defs>
 
               {/* (คง SVG เดิมไว้) */}
-              <path d="M320 190 H560" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" markerEnd="url(#arrow)" />
-              <path d="M560 190 H760" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" markerEnd="url(#arrow)" />
+              <path d="M300 190 V150  H260" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none"  />
+              <path d="M300 190 V227  H260" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none"  />
+
+              <path d="M300 190 H460" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" />
+              <circle cx="300" cy="190" r="7" fill="#0a0a0a" stroke="rgba(255,255,255,0.85)" strokeWidth="2" />
+              <path d="M460 190 V115 H540" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" markerEnd="url(#arrow)" />
+              <path d="M460 190       H540" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" markerEnd="url(#arrow)" />
+              <path d="M460 190 V263 H540" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" markerEnd="url(#arrow)" />
+              <circle cx="460" cy="190" r="7" fill="#0a0a0a" stroke="rgba(255,255,255,0.85)" strokeWidth="2" />
+              
+              <path d="M760 190 V115 H660" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" />
+              <path d="M760 190       H660" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" />
+              <path d="M760 190 V263 H660" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" />
+
+              <path d="M560 190 H760" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" />
               <path d="M760 190 H870" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" />
               <circle cx="760" cy="190" r="7" fill="#0a0a0a" stroke="rgba(255,255,255,0.85)" strokeWidth="2" />
               <path d="M870 190 V115 H935" stroke="rgba(255,255,255,0.85)" strokeWidth="2" fill="none" markerEnd="url(#arrow)" />
@@ -864,27 +889,19 @@ export default function DashboardPage() {
             >
               {/* CH */}
               <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-                {(chillerPower.length ? chillerPower.slice(0, 2) : []).map((it) => (
-                  <MachineBox key={it.id} label={it.id} subLabel={it.label} status={runStatus(it)} />
-                ))}
-                {!chillerPower.length && <div style={{ fontSize: 12, color: "#666" }}>No chiller data</div>}
+                {renderMachineColumn(["CH1", "CH2"], chillerPower.slice(0, 2), "ch")}
               </div>
 
               {/* TF */}
               <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                {(thermoform.length ? thermoform.slice(0, 3) : []).map((it) => (
-                  <MachineBox key={it.id} label={it.id} subLabel={it.label} status={runStatus(it)} />
-                ))}
-                {!thermoform.length && <div style={{ fontSize: 12, color: "#666" }}>No TF data</div>}
+                {renderMachineColumn(["TF1", "TF2", "TF3"], thermoform.slice(0, 3), "tf")}
               </div>
 
               {/* PUMP */}
               <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-                {(pumpPower.length ? pumpPower.slice(0, 3) : []).map((it) => (
-                  <MachineBox key={it.id} label={it.id} subLabel={it.label} status={runStatus(it)} />
-                ))}
-                {!pumpPower.length && <div style={{ fontSize: 12, color: "#666" }}>No pump data</div>}
+                {renderMachineColumn(["P1", "P2", "P3"], pumpPower.slice(0, 3), "pump")}
               </div>
+
             </div>
 
             <div
