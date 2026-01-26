@@ -33,7 +33,7 @@ def _iso_ts(v):
         # datetime
         return v.isoformat()
     except Exception:
-        return str(v)
+        return str(v)   
 
 
 def _clean_records_for_json(records: list[dict]) -> list[dict]:
