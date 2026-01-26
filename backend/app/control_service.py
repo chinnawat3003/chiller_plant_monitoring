@@ -585,7 +585,7 @@ def predict_cost_history(plant_id, start="-24h", stop="now()", every="10m", rate
 
 
 # -------------------- suggestion / limit (ใช้ by-tag snapshot) --------------------
-def suggestion(plant_id: str):
+def suggestion_v2(plant_id: str):
 
     import pandas as pd
 
