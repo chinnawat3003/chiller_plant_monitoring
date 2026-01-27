@@ -1,0 +1,35 @@
+
+### Note: เปิดโปรเจกต์รอบถัดไป (MCP + Langflow)
+
+1. เปิด VSCode ที่โฟลเดอร์ `rmc-monitor/backend`
+2. Activate venv
+
+```powershell
+.\.venv\Scripts\Activate.ps1
+```
+
+3. รัน MCP Server (พอร์ต 8000)
+
+```powershell
+python -m app.mcp_server
+```
+
+4. รัน MCP Proxy (พอร์ต 8003)
+
+```powershell
+python -m uvicorn app.mcp_proxy:app --reload --host 0.0.0.0 --port 8003
+```
+
+5. Langflow → MCP Server URL ใช้
+
+```
+http://host.docker.internal:8003/mcp
+```
+
+(ใช้ proxy เพื่อเลี่ยง `Invalid Host header` / `421`)
+
+6. ถ้าจะเปิด REST API/UI เพิ่ม (optional)
+
+```powershell
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8002
+```

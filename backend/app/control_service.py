@@ -583,89 +583,6 @@ def predict_cost_history(plant_id, start="-24h", stop="now()", every="10m", rate
         "cost_saving": round(cost_saving, 2),
     }
 
-def get_thresholds_for_llm(plant_id: str) -> dict:
-    th = config.get_recommend_thresholds(plant_id)
-    return {"ok": True, "plant_id": plant_id, "thresholds": th}
-
-
-def _snap_pump_power_by_tag(plant_id: str):
-    plant = config.get_plant(plant_id)
-    tag_list = plant["tags"]["pump_power"]
-    if mock_provider.enabled():
-        values = mock_provider.default_values("pump_power", tag_list)
-        df = mock_provider.oneshot_df(tag_list, values)
-    else:
-        df = chiller_query.pump_power(plant_id)
-    return build_param_response(df, include_total=True)
-
-
-def get_snapshot_for_llm(plant_id: str) -> dict:
-    # thresholds (used for computed features เช่น chiller_on)
-    th = config.get_recommend_thresholds(plant_id)
-
-    snap_ch = _snap_chiller_power_by_tag(plant_id)
-    snap_tp = _snap_tank_temp_by_tag(plant_id)
-    snap_fl = _snap_pump_flow_by_tag(plant_id)
-    snap_pp = _snap_pump_power_by_tag(plant_id)
-
-    if not snap_ch or not snap_ch.get("ok"):
-        return {"ok": False, "error": "no chiller power snapshot"}
-
-    # compute number of chillers ON (ใช้ cop_map power tags)
-    plant = config.get_plant(plant_id)
-    power_tags = [m["power"] for m in plant["cop_map"].values()]
-    on_th = float(th.get("chiller_on_th_kw", 50.0))
-
-    running = []
-    for tag in power_tags:
-        v = snap_ch.get("param", {}).get(tag, {}).get("data", 0.0)
-        try:
-            v = float(v)
-        except Exception:
-            v = 0.0
-        if v > on_th:
-            running.append({"tag": tag, "kw": v})
-
-    # latest tank temps (return/supply) จาก cop_map
-    first_map = next(iter(plant["cop_map"].values()))
-    t_ret_tag = first_map["t_ret"]
-    t_sup_tag = first_map["t_sup"]
-
-    t_ret = snap_tp.get("param", {}).get(t_ret_tag, {}).get("data")
-    t_sup = snap_tp.get("param", {}).get(t_sup_tag, {}).get("data")
-
-    # latest flow (เอาตัวแรกของ flow tag list)
-    flow_tag = (plant["tags"]["flow"] or [None])[0]
-    flow = snap_fl.get("param", {}).get(flow_tag, {}).get("data") if flow_tag else None
-
-    # optional: estimate cooling capacity now (ถ้ามีครบ)
-    cooling_capa_kw = None
-    try:
-        if flow is not None and t_ret is not None and t_sup is not None:
-            cooling_capa_kw = float(kw_cooling(float(flow), float(t_ret) - float(t_sup)))
-    except Exception:
-        cooling_capa_kw = None
-
-    return {
-        "ok": True,
-        "plant_id": plant_id,
-        "ts": snap_ch.get("ts"),
-        "snapshot": {
-            "chiller_power": snap_ch,      # มี total + param[tag].data/online
-            "pump_power": snap_pp,
-            "tank_temp": snap_tp,
-            "flow": snap_fl,
-        },
-        "computed": {
-            "num_chiller_on": len(running),
-            "running_chillers": running,
-            "t_return_c": t_ret,
-            "t_supply_c": t_sup,
-            "flow_m3h": flow,
-            "cooling_capa_kw_est": cooling_capa_kw,
-        },
-    }
-
 
 # -------------------- suggestion / limit (ใช้ by-tag snapshot) --------------------
 def suggestion(plant_id: str):
@@ -674,7 +591,7 @@ def suggestion(plant_id: str):
 
     # ===================== EDIT HERE (ง่ายสุด) =====================
     SETPOINT_RETURN_C = 14.0     # <-- setpoint อยู่ตรงนี้เลย
-    COOLING_TH_KW = 550.0 #kW
+    COOLING_TH_KW = 550.0
     LOAD_TH_PCT = 85.0
     RATED_KW = 250.0             # ใช้คำนวณ %load
     CHILLER_ON_TH_KW = 50.0      # ถือว่า chiller ON เมื่อ kW > ค่านี้
@@ -893,3 +810,91 @@ def limit_chiller_power_input(plant_id):
         data_ui["limits"] = {"low": 0.0, "high": 0.0}
 
     return data_ui
+
+
+# =========================
+# AI-focused helpers
+# =========================
+
+def state_for_ai(plant_id: str) -> dict:
+    """Return a compact, numeric snapshot for LLM decision-making (no rule-based 'suggest')."""
+    ch = df_chiller_power(plant_id)          # per-slot power (kW)
+    pu = df_pump_power(plant_id)             # per-slot power (kW)
+    tf = df_thermoform_power(plant_id)       # per-slot power (kW)
+
+    def _sum_kw(items):
+        return float(sum(x.get("value_kw", 0.0) for x in items))
+
+    ch_items = ch.get("items", [])
+    pu_items = pu.get("items", [])
+    tf_items = tf.get("items", [])
+
+    # Consider 'ON' if power >= 0.5 kW (tweak if needed)
+    def _on_count(items, th=0.5):
+        return int(sum(1 for x in items if float(x.get("value_kw", 0.0)) >= th))
+
+    total_ch_kw = _sum_kw(ch_items)
+    total_pu_kw = _sum_kw(pu_items)
+    total_tf_kw = _sum_kw(tf_items)
+
+    return {
+        "ok": True,
+        "plant_id": plant_id,
+        "metrics": {
+            "chiller_total_kw": total_ch_kw,
+            "pump_total_kw": total_pu_kw,
+            "thermoform_total_kw": total_tf_kw,
+            "chiller_on": _on_count(ch_items),
+            "pump_on": _on_count(pu_items),
+            "thermoform_on": _on_count(tf_items),
+        },
+        "detail": {
+            "chillers": ch_items,
+            "pumps": pu_items,
+            "thermoforms": tf_items,
+        },
+    }
+
+
+def decide_actions(plant_id: str, objective: str = "chiller_only") -> dict:
+    """High-level planner.
+    - objective='chiller_only': use existing rule engine (suggestion()).
+    - objective='optimize': still uses rules as baseline, but also surfaces pump/thermoform signals for cost/optimization.
+    """
+    st = state_for_ai(plant_id)
+    if not st.get("ok"):
+        return st
+
+    base = suggestion(plant_id)  # keep UI-compatible output
+    out = {
+        "ok": True,
+        "plant_id": plant_id,
+        "objective": objective,
+        "status": base.get("status"),
+        "summary": base.get("summary"),
+        "recommendation": {
+            "suggest": base.get("suggest"),
+            "reason": base.get("reason"),
+        },
+        "metrics": st["metrics"],
+        "detail": st["detail"],
+    }
+
+    if objective == "optimize":
+        # Add simple, explainable heuristics (no direct control here—just recommendations)
+        notes = []
+        m = st["metrics"]
+
+        # If thermoform is OFF, bias to energy saving.
+        if m["thermoform_on"] == 0 and m["chiller_on"] > 0:
+            notes.append("Thermoform appears OFF → consider reducing chiller count if temperature is stable.")
+
+        # If pumps consume unusually high share of power, flag it.
+        if m["chiller_total_kw"] > 0:
+            pump_share = m["pump_total_kw"] / max(m["chiller_total_kw"], 1e-6)
+            if pump_share > 0.35:
+                notes.append(f"Pump power is high (≈{pump_share:.0%} of chiller kW) → check pump staging/VSD/valves.")
+
+        out["optimization_notes"] = notes
+
+    return out
