@@ -11,6 +11,36 @@ THRESHOLD_BY_TAG = {
     "Chiller.Temp.C": 5.0,
 }
 
+# --- recommendation thresholds (for LLM decision) ---
+RECOMMEND_THRESHOLDS_BY_PLANT = {
+    "P1": {
+        "setpoint_return_c": 14.0,
+        "cooling_th_kw": 550.0,
+        "load_th_pct": 85.0,
+        "rated_kw": 250.0,
+        "chiller_on_th_kw": 50.0,
+        "lookback": "-2h",
+        "every": "10m",
+        "n_up": 3,
+        "n_down": 6,
+    },
+    "P2": {
+        "setpoint_return_c": 14.0,
+        "cooling_th_kw": 550.0,
+        "load_th_pct": 85.0,
+        "rated_kw": 250.0,
+        "chiller_on_th_kw": 50.0,
+        "lookback": "-2h",
+        "every": "10m",
+        "n_up": 3,
+        "n_down": 6,
+    },
+}
+
+def get_recommend_thresholds(plant_id: str | None = None) -> dict:
+    pid = plant_id or DEFAULT_PLANT
+    return RECOMMEND_THRESHOLDS_BY_PLANT.get(pid, RECOMMEND_THRESHOLDS_BY_PLANT[DEFAULT_PLANT])
+
 PLANTS = {
     "P1": {
         "name": "plant 1",
