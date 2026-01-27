@@ -10,7 +10,7 @@ ModuleRegistry.registerModules([AllCommunityModule]);
 /** =========================
  * CONFIG
  * ========================= */
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8000";
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://127.0.0.1:8002";
 const HEALTH_URL = `${API_BASE}/health`;
 
 // เงื่อนไข "เครื่องทำงาน" (Power kW > threshold)
@@ -459,7 +459,7 @@ export default function DashboardPage() {
       const ok = await pingHealth();
       if (!ok) throw new Error("FastAPI offline");
       setApiStatus("online");
-      const data = await fetchJson<SuggestionRes>(`${API_BASE}/api/recommend`, plantId, 8000);
+      const data = await fetchJson<SuggestionRes>(`${API_BASE}/api/recommend`, plantId, 8002);
       setSuggestion(data);
     } catch (e: any) {
       setSuggestion(null);
@@ -529,7 +529,7 @@ export default function DashboardPage() {
       const hasLimit = !!CHARTS[chartKey].limitEndpoint;
 
       const [json, limits] = await Promise.all([
-        fetchJson<any>(chartUrl, plantId, 8000),
+        fetchJson<any>(chartUrl, plantId, 8002),
         hasLimit ? fetchLimitsForChart(chartKey) : Promise.resolve<Limits>({}),
       ]);
 

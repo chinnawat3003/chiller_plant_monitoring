@@ -583,15 +583,98 @@ def predict_cost_history(plant_id, start="-24h", stop="now()", every="10m", rate
         "cost_saving": round(cost_saving, 2),
     }
 
+def get_thresholds_for_llm(plant_id: str) -> dict:
+    th = config.get_recommend_thresholds(plant_id)
+    return {"ok": True, "plant_id": plant_id, "thresholds": th}
+
+
+def _snap_pump_power_by_tag(plant_id: str):
+    plant = config.get_plant(plant_id)
+    tag_list = plant["tags"]["pump_power"]
+    if mock_provider.enabled():
+        values = mock_provider.default_values("pump_power", tag_list)
+        df = mock_provider.oneshot_df(tag_list, values)
+    else:
+        df = chiller_query.pump_power(plant_id)
+    return build_param_response(df, include_total=True)
+
+
+def get_snapshot_for_llm(plant_id: str) -> dict:
+    # thresholds (used for computed features เช่น chiller_on)
+    th = config.get_recommend_thresholds(plant_id)
+
+    snap_ch = _snap_chiller_power_by_tag(plant_id)
+    snap_tp = _snap_tank_temp_by_tag(plant_id)
+    snap_fl = _snap_pump_flow_by_tag(plant_id)
+    snap_pp = _snap_pump_power_by_tag(plant_id)
+
+    if not snap_ch or not snap_ch.get("ok"):
+        return {"ok": False, "error": "no chiller power snapshot"}
+
+    # compute number of chillers ON (ใช้ cop_map power tags)
+    plant = config.get_plant(plant_id)
+    power_tags = [m["power"] for m in plant["cop_map"].values()]
+    on_th = float(th.get("chiller_on_th_kw", 50.0))
+
+    running = []
+    for tag in power_tags:
+        v = snap_ch.get("param", {}).get(tag, {}).get("data", 0.0)
+        try:
+            v = float(v)
+        except Exception:
+            v = 0.0
+        if v > on_th:
+            running.append({"tag": tag, "kw": v})
+
+    # latest tank temps (return/supply) จาก cop_map
+    first_map = next(iter(plant["cop_map"].values()))
+    t_ret_tag = first_map["t_ret"]
+    t_sup_tag = first_map["t_sup"]
+
+    t_ret = snap_tp.get("param", {}).get(t_ret_tag, {}).get("data")
+    t_sup = snap_tp.get("param", {}).get(t_sup_tag, {}).get("data")
+
+    # latest flow (เอาตัวแรกของ flow tag list)
+    flow_tag = (plant["tags"]["flow"] or [None])[0]
+    flow = snap_fl.get("param", {}).get(flow_tag, {}).get("data") if flow_tag else None
+
+    # optional: estimate cooling capacity now (ถ้ามีครบ)
+    cooling_capa_kw = None
+    try:
+        if flow is not None and t_ret is not None and t_sup is not None:
+            cooling_capa_kw = float(kw_cooling(float(flow), float(t_ret) - float(t_sup)))
+    except Exception:
+        cooling_capa_kw = None
+
+    return {
+        "ok": True,
+        "plant_id": plant_id,
+        "ts": snap_ch.get("ts"),
+        "snapshot": {
+            "chiller_power": snap_ch,      # มี total + param[tag].data/online
+            "pump_power": snap_pp,
+            "tank_temp": snap_tp,
+            "flow": snap_fl,
+        },
+        "computed": {
+            "num_chiller_on": len(running),
+            "running_chillers": running,
+            "t_return_c": t_ret,
+            "t_supply_c": t_sup,
+            "flow_m3h": flow,
+            "cooling_capa_kw_est": cooling_capa_kw,
+        },
+    }
+
 
 # -------------------- suggestion / limit (ใช้ by-tag snapshot) --------------------
-def suggestion_v2(plant_id: str):
+def suggestion(plant_id: str):
 
     import pandas as pd
 
     # ===================== EDIT HERE (ง่ายสุด) =====================
     SETPOINT_RETURN_C = 14.0     # <-- setpoint อยู่ตรงนี้เลย
-    COOLING_TH_KW = 550.0
+    COOLING_TH_KW = 550.0 #kW
     LOAD_TH_PCT = 85.0
     RATED_KW = 250.0             # ใช้คำนวณ %load
     CHILLER_ON_TH_KW = 50.0      # ถือว่า chiller ON เมื่อ kW > ค่านี้
