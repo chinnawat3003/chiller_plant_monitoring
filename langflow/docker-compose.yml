@@ -1,0 +1,15 @@
+version: "3"
+services:
+  langflow:
+    image: langflowai/langflow:latest
+    container_name: langflow-server
+    ports:
+      - "7860:7860"
+    environment:
+      - LANGFLOW_HOST=0.0.0.0
+    volumes:
+      - langflow-data:/root/.cache/langflow
+    restart: always
+
+volumes:
+  langflow-data:
