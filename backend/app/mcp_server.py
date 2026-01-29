@@ -18,5 +18,6 @@ def get_state(plant_id: str) -> dict:
 def decide_actions(plant_id: str, objective: str = "chiller_only") -> dict:
     return control_service.decide_actions(plant_id, objective=objective)
 
+
 if __name__ == "__main__":
     mcp.run(transport="streamable-http", mount_path="/mcp")
