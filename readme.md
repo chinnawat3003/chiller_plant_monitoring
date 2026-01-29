@@ -146,7 +146,7 @@ To support development without real plant data:
 ---
 
 ## Langflow + Docker + MCP Integration
-
+![Dashboard](pic/Langflow.png)
 ### What was done
 - Langflow runs via **Docker** as orchestration UI for LLM pipeline
 - Backend exposes MCP tools so Langflow calls the plant system as tools (not only text)
@@ -154,7 +154,7 @@ To support development without real plant data:
   - `Action: ON/OFF`
   - `Target: CH1 / TF4 ...`
   - `Reasoning` using returned metrics (e.g., thermoform_total_kw, chiller_on counts)
-
+![Dashboard](pic/chatbot.png)
 ### Why the MCP Proxy exists
 Some setups fail due to host header + streaming constraints. Proxy:
 - Forwards requests to MCP server
