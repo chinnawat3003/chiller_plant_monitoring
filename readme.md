@@ -65,6 +65,8 @@ Includes an **MCP proxy** to:
 - Support **SSE streaming** (text/event-stream)
 
 ### E) Frontend (Next.js)
+## Demo
+![Dashboard](pic/UI.png)
 Monitoring dashboard features:
 - Plant selector + live connection status
 - Chiller plant diagram visualization (CH/TF/P nodes)
