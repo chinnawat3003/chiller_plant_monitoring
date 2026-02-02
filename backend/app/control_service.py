@@ -23,7 +23,6 @@ def _float_or_none(v):
     except Exception:
         return None
 
-
 def _iso_ts(v):
     if v is None:
         return None
@@ -34,7 +33,6 @@ def _iso_ts(v):
         return v.isoformat()
     except Exception:
         return str(v)   
-
 
 def _clean_records_for_json(records: list[dict]) -> list[dict]:
     cleaned = []
@@ -49,7 +47,6 @@ def _clean_records_for_json(records: list[dict]) -> list[dict]:
                 out[k] = v
         cleaned.append(out)
     return cleaned
-
 
 # -------------------- old style (by real tag) --------------------
 def build_param_response(df: pd.DataFrame, include_total: bool = True):
@@ -82,7 +79,6 @@ def build_param_response(df: pd.DataFrame, include_total: bool = True):
     if include_total:
         out["total"] = total
     return out
-
 
 # -------------------- UI style (by slot id) --------------------
 def build_slot_response(df: pd.DataFrame, slots: list[dict], include_total: bool = True):
@@ -118,7 +114,7 @@ def build_slot_response(df: pd.DataFrame, slots: list[dict], include_total: bool
             "online": bool(online),
             # "raw_tag": tag,  # เปิดไว้ debug ได้
         })
-
+    
         if include_total and val is not None:
             total += float(val)
 
@@ -126,7 +122,6 @@ def build_slot_response(df: pd.DataFrame, slots: list[dict], include_total: bool
     if include_total:
         out["total"] = total
     return out
-
 
 def pivot_history_to_slot_records(df: pd.DataFrame, slots: list[dict]) -> list[dict]:
     """
@@ -146,7 +141,6 @@ def pivot_history_to_slot_records(df: pd.DataFrame, slots: list[dict]) -> list[d
 
     recs = pivoted.to_dict(orient="records")
     return _clean_records_for_json(recs)
-
 
 def _pivot_history_to_records(df: pd.DataFrame) -> list[dict]:
     """

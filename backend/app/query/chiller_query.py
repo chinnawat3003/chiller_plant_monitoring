@@ -207,7 +207,7 @@ def thermoform_power(plant_id):
     
     flux = f'''
         from(bucket:"{BUCKET}")
-        |> range(start:-5m)
+        |> range(start:-20m)
         |> filter(fn:(r)=> r["_measurement"]=="PwrMeter")
         |> filter(fn:(r)=> r["_field"]=="value")
         |> filter(fn:(r)=> contains(value: r["Source_tag"], set: {tags}))
