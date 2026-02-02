@@ -4,7 +4,7 @@ import re
 import numpy as np
 import pandas as pd
 
-MOCK_MODE = os.getenv("MOCK_MODE", "1") == "1"
+MOCK_MODE = os.getenv("MOCK_MODE", "0") == "1"
 
 def enabled() -> bool:
     return MOCK_MODE
